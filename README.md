@@ -34,7 +34,7 @@ predicts its own clock.
   and leaderboard.
 - **Styles**: sideways, half-sideways, backwards, low gravity, prebhop — a ranking
   weight and a minimum time here, the movement transform in
-  [dot-fps-controller](../dot-fps-controller).
+  [dot-fps-controller](https://github.com/modcommunity/dot-fps-controller).
 - **Replays**: quantised and delta-encoded to under 12 bytes a frame, with playback
   sampled at a time so it runs at the right speed on any monitor.
 - **Records**: a store interface with in-memory and file implementations, ranking
@@ -51,7 +51,7 @@ predicts its own clock.
 
 ## Installing
 
-Copy `addons/dot_timer/` and [`dot-core`](../dot-core)'s `addons/dot_core/` into your
+Copy `addons/dot_timer/` and [`dot-core`](https://github.com/modcommunity/dot-core)'s `addons/dot_core/` into your
 project, and enable dot-timer in *Project → Project Settings → Plugins*.
 
 Only dot-core is required. dot-fps-controller, dot-net and dot-server are optional.

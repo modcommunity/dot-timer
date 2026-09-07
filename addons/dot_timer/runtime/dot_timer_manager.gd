@@ -360,9 +360,18 @@ func set_zones(set: DotTimerZoneSet) -> DotResult:
 				"at": "%.0f m/s, %d Hz" % [speed, tick_rate],
 			})
 
-	if not tick_rate_matches_engine():
-		# The one misconfiguration that produces plausible wrong times rather than an
-		# error. Said at every map change because that is when somebody is watching.
+	# [b]Only where it is true.[/b] On an authoritative timer a rate that disagrees with
+	# the engine is the one misconfiguration producing plausible wrong times rather than
+	# an error, and it is said at every map change because that is when somebody is
+	# watching.
+	#
+	# On a MIRRORING timer it is neither wrong nor avoidable. A client counts at the
+	# rate the server told it — that is the whole point, and it is what makes a run set
+	# at 128 comparable on a client rendering at 60 — while `physics_ticks_per_second`
+	# there is whatever the host project exported, which the server has no say in and
+	# which a browser build never sets at all. Warning about it told every web client
+	# that every time "this server" files will be wrong, on a client that files none.
+	if authoritative and not tick_rate_matches_engine():
 		DotLog.warn(
 			CHANNEL,
 			"the timer's tick rate does not match the engine's physics rate; "

@@ -172,7 +172,16 @@ at 128 produces a time that is neither, and files it. Abandoning costs somebody 
 attempt; the alternative costs the leaderboard its meaning.
 
 `tick_rate_matches_engine()` is checked at every map change and warns loudly, because
-a map change is when somebody is watching.
+a map change is when somebody is watching — **but only on an authoritative timer.**
+
+On a mirroring one the mismatch is neither wrong nor avoidable, and saying so was a
+lie told to the people least able to act on it. A client counts at the rate the SERVER
+told it, which is the whole point of replicating a rate at all: it is what makes a run
+set at 128 comparable on a client rendering at 60. Its own
+`physics_ticks_per_second` is whatever its host project exported and the server has no
+say in it — a browser build never sets one and runs at 60. Unguarded, every web client
+connecting to a 128-tick timer server was told at every map change that "every time
+this server files will be wrong by their ratio", about a client that files none.
 
 ## Practice mode
 
