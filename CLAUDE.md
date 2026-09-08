@@ -183,6 +183,51 @@ say in it — a browser build never sets one and runs at 60. Unguarded, every we
 connecting to a 128-tick timer server was told at every map change that "every time
 this server files will be wrong by their ratio", about a client that files none.
 
+## Stages, and the half that was missing
+
+A staged map — Counter-Strike's shape, and what most surf and bhop maps past the
+beginner tier are — is a course divided into numbered sections with a line between each.
+The **model** for it has been here since the addon was written: `DotTimerTrack` is 0 for
+the main route and 1..8 for bonuses, `DotTimerZone.Kind.STAGE` splits a run with a
+sub-tick fraction, `DotTimerRun.splits` holds a time per stage, `DotTimerZoneSet`
+answers `stage_count(track)` and `playable_tracks()`, and every zone has a `destination`
+and a `destination_yaw`.
+
+**And `stage_count` occurred exactly once in the whole family**, which is this tree's
+own mechanical detector for a value produced correctly and consumed by nothing. Nothing
+showed a player which stage they were on, nothing compared their split against
+anything, and there was no way to practise a stage — which on a four-minute map is the
+difference between a map people learn and a map people leave.
+
+What was added is the navigation half, which is what Shavit's `sm_stages` / `sm_s3` and
+`sm_stagerestart` are:
+
+| | |
+| --- | --- |
+| `DotTimerZoneSet.stage_zone(track, n)` | the zone "go to stage 3" resolves against |
+| `DotTimerManager.stage_count(track)` / `tracks()` | how many stages, which routes |
+| `DotTimerManager.request_stage(id, n)` | `!s3`. Refuses out of range rather than clamping |
+| `DotTimerManager.restart_stage(id)` | `!rs`, meaning the stage you are on |
+| `DotTimerManager.stage_splits_for(id)` | the player's own best split per stage |
+| `stage_requested(player_id, number, zone)` | **the host moves them**, not this addon |
+
+Four things in that are decisions rather than details:
+
+- **The run is stopped, not tainted.** A player teleported into the middle of a map has
+  not run the first half of it, and a timer that let that time stand would file a record
+  for a run nobody made. Practice checkpoints are the mechanism for "keep my time while
+  I learn this" and carry their own flag; this is the other thing.
+- **A stage out of range is refused.** Same reason `DotTimerTrack.parse` returns -1
+  rather than falling back to the main track: a player who typed `!s9` on a five-stage
+  map and was silently put on stage 5 has no way to tell.
+- **A stage zone with no `destination` resolves to `Vector3.ZERO`**, which on most maps
+  is a point in the sky above the start. Nothing errors — the request succeeds and the
+  player is dropped out of the world — so a zone that has one and a zone that does not
+  look identical everywhere except in play. `G2GMap.zone_stage` exists to make
+  forgetting it hard.
+- **The timer still moves nobody.** `stage_requested` is emitted for the same reason
+  `effect_requested` is, and that signal spent its whole life being fired by nothing.
+
 ## Practice mode
 
 After the timer itself this is the most-used feature on a surf or bhop server. A
@@ -261,6 +306,36 @@ stops a start and finish drawn close enough to touch producing an unbeatable 0.0
 second record; the checkpoint and taint flags are sticky for the whole attempt,
 because clearing them when the player stops cheating would let anybody file a record
 for the last thirty seconds of a map.
+
+## The HUD is an overlay
+
+`DotTimerHud` used to draw a column of lines from the top-left downward at whatever font
+size it was given. On a 1600 x 900 client that is a scattered block of grey text down a
+quarter of the screen — a debug readout rather than a timer, and it is what a bhop
+player stares at for hours.
+
+It now measures everything it draws, packs it into one block, and places that block in
+`corner` of its own rect with `margin` clear of the edge. The default is the **bottom
+centre**, under the crosshair, where this genre has put a clock for fifteen years.
+
+Three consequences worth knowing:
+
+- **Give it a full-rect `Control`.** The rect is the area the block is laid out
+  *inside*, not the block. A host that sizes it 360 x 200 gets an overlay pinned to the
+  corner of a box in the corner. And `set_anchors_preset` does not set offsets.
+- **The placement enum is `Placement`, not `Corner`.** Godot has a global built-in
+  `Corner` — the one `StyleBox` radii are indexed by — and an inner enum shadowing it
+  makes every assignment to the property a parse error reading "Cannot assign a value of
+  type DotTimerHud.Corner as Corner", which points at the assignment rather than at the
+  name.
+- **The plate is one `StyleBoxFlat`, drawn once.** It was a rect plus four corner
+  circles, and translucent shapes that overlap blend twice: the plate came out with four
+  dark dots at its corners. Any decomposition into overlapping pieces has that bug.
+
+`block_size()` is measured the same way `_draw` measures it, and the suite asserts a
+**size** — because an interface is the one part of this family whose bugs are invisible
+to assertions, and this tree has shipped 0 x 0 `Control`s twice with every property
+correct.
 
 ## Replays
 

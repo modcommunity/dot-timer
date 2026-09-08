@@ -68,6 +68,15 @@ signal effect_requested(player_id: StringName, zone: DotTimerZone)
 ## The "while inside" zones in force for a player changed.
 signal effects_changed(player_id: StringName, effects: Dictionary)
 
+## A player asked to be put at a stage. [b]The host moves them.[/b]
+##
+## [param zone] carries [member DotTimerZone.destination] and
+## [member DotTimerZone.destination_yaw]. The run is already stopped by the time this
+## is emitted — see [method request_stage]. Emitted rather than acted on for the same
+## reason [signal effect_requested] is: what "put the player here" means differs
+## between a first-person game, a 2D game and a replay being scrubbed.
+signal stage_requested(player_id: StringName, number: int, zone: DotTimerZone)
+
 ## The map's zones were replaced.
 signal zones_changed(zones: DotTimerZoneSet)
 
@@ -774,6 +783,139 @@ func checkpoints_for(id: StringName) -> DotTimerCheckpoints:
 func set_player_track(id: StringName, track: int) -> bool:
 	var found := player(id)
 	return found != null and found.timer.set_track(track)
+
+
+# --- Stages ----------------------------------------------------------------
+#
+# The navigation half of a staged map, which is what Counter-Strike's staged maps and
+# Shavit's `sm_stages` / `sm_stagerestart` are. dot-timer has carried stage zones,
+# sub-tick splits and `stage_count` since it was written and NOTHING read any of it:
+# `stage_count` occurred exactly once in the whole family, which is this tree's own
+# mechanical detector for a value produced correctly and consumed by nothing.
+#
+# The timer still does not move anybody. `stage_requested` is emitted for the same
+# reason `effect_requested` is: what "put the player here" means differs between a
+# first-person game, a 2D game and a replay being scrubbed, and an addon that moved a
+# body would be choosing for all three.
+
+
+## How many stages a track has on the loaded map. 0 for a map without any.
+func stage_count(track: int = DotTimerTrack.MAIN) -> int:
+	return zones.stage_count(track) if zones != null else 0
+
+
+## The stage zone a "go to stage N" resolves to, or null.
+func stage_zone(track: int, number: int) -> DotTimerZone:
+	return zones.stage_zone(track, number) if zones != null else null
+
+
+## Which tracks on this map can actually be run, start to finish.
+func tracks() -> PackedInt32Array:
+	return zones.playable_tracks() if zones != null else PackedInt32Array()
+
+
+## Puts a player at stage [param number] of the track they are on. Shavit's `!s3`.
+##
+## [b]The run is stopped, not tainted.[/b] A player teleported into the middle of a
+## map has not run the first half of it, and a timer that let that time stand would be
+## filing a record for a run nobody made. Practice checkpoints are the mechanism for
+## "I want to keep my time while I learn this" and they carry their own
+## [member DotTimerRun.used_checkpoints] flag; this is the other thing, and it is not
+## a ranked attempt.
+##
+## Returns the zone the host should move the player to.
+func request_stage(id: StringName, number: int) -> DotResult:
+	var found := player(id)
+
+	if found == null:
+		return DotResult.fail(DotError.CODE_INVALID, "No such player: %s." % id)
+
+	var track: int = found.timer.track
+	var total := stage_count(track)
+
+	if total <= 0:
+		return DotResult.fail(
+			DotError.CODE_UNSUPPORTED,
+			"%s has no stages on %s." % [
+				String(zones.map_id) if zones != null else "this map",
+				DotTimerTrack.name_of(track),
+			]
+		)
+
+	# Refused rather than clamped, for the reason DotTimerTrack.parse returns -1
+	# rather than falling back to the main track: a player who typed "stage 9" on a
+	# five-stage map and was silently put on stage 5 has no way to tell.
+	if number < 1 or number > total:
+		return DotResult.fail(
+			DotError.CODE_INVALID,
+			"Stage %d is outside 1..%d on %s." % [
+				number, total, DotTimerTrack.name_of(track)
+			]
+		)
+
+	var zone := stage_zone(track, number)
+
+	if zone == null:
+		return DotResult.fail(
+			DotError.CODE_INVALID,
+			"No stage %d zone on %s." % [number, DotTimerTrack.name_of(track)]
+		)
+
+	found.timer.stop(DotTimer.REASON_TELEPORT)
+	stage_requested.emit(id, number, zone)
+
+	DotLog.debug(CHANNEL, "stage requested", {
+		"player": String(id), "track": track, "stage": number
+	})
+
+	return DotResult.success(zone)
+
+
+## Puts a player back at the start of the stage they are on. Shavit's `!rs`.
+##
+## Stage 0 — before the first stage zone — is the start of the track, so this falls
+## back to stage 1 rather than refusing. A player who has not reached a stage yet and
+## asks to restart the stage means the one they are in.
+func restart_stage(id: StringName) -> DotResult:
+	var found := player(id)
+
+	if found == null:
+		return DotResult.fail(DotError.CODE_INVALID, "No such player: %s." % id)
+
+	return request_stage(id, maxi(found.timer.run.stage, 1))
+
+
+## The comparison splits for a player's stage line: their own best on this map,
+## track and style, as [member DotTimerRecord.splits].
+##
+## Empty when there is no store, no record, or no stages — all three of which mean
+## the HUD shows a stage number and no gap, which is correct rather than a failure.
+func stage_splits_for(id: StringName) -> Dictionary:
+	var found := player(id)
+
+	if found == null or store == null or zones == null:
+		return {}
+
+	var style := found.timer.style
+	var res := store.best_for(
+		zones.map_id,
+		found.timer.track,
+		style.id if style != null else &"normal",
+		id
+	)
+
+	# A store that answers "nobody has a time here" answers with a SUCCESS carrying
+	# null, not with a failure — a player who has never run this map is not an error.
+	# Branching on `res.ok` alone would take the null through as a record.
+	if not res.ok or res.value == null:
+		return {}
+
+	var best: DotTimerRecord = res.value
+
+	# Copied, not handed out. `DotTimerRecord.splits` is a Dictionary and therefore a
+	# reference: returning it directly would let a HUD's own writes land in the stored
+	# record. Three of this record's dictionaries have already been that bug once.
+	return best.splits.duplicate(true)
 
 
 ## The run in progress for a player, or null.

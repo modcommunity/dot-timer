@@ -44,6 +44,8 @@ func _run() -> void:
 	_test_tickrate_agreement()
 	_test_exact_boundary_landing()
 	_test_stages_and_splits()
+	_test_stage_navigation()
+	_test_hud_overlay()
 	_test_other_track_ignored()
 	_test_stop_and_death()
 	_test_style_change_abandons()
@@ -578,6 +580,235 @@ func _test_stages_and_splits() -> void:
 	_check_near(
 		float(reached.splits[1]), 100.0, 0.001, "and the original split stands"
 	)
+
+
+func _test_stage_navigation() -> void:
+	print("stage navigation")
+
+	# The navigation half of a staged map: Counter-Strike's staged maps, and Shavit's
+	# `sm_stages` / `sm_stagerestart`. dot-timer has carried stage zones, splits and
+	# `stage_count` since it was written and NOTHING read any of it — `stage_count`
+	# occurred exactly once in the whole family, which is this tree's own mechanical
+	# detector for a value produced correctly and consumed by nothing.
+	var set := _corridor()
+
+	# Every stage zone gets a destination, which is what "go to stage 3" resolves to.
+	for zone in set.of_kind(DotTimerZone.Kind.STAGE, DotTimerTrack.MAIN):
+		zone.destination = zone.centre() + Vector3(0.0, 1.0, 0.0)
+		zone.destination_yaw = 90.0
+
+	var manager := DotTimerManager.new()
+	manager.authoritative = true
+	manager.tick_rate = 128
+	manager.store = DotTimerStoreMemory.new()
+	manager.record_replays = false
+	add_child(manager)
+
+	manager.set_zones(set)
+	manager.set_styles(DotTimerStyle.defaults())
+	manager.add_player(&"nav", "Navigator")
+
+	_check(manager.stage_count(DotTimerTrack.MAIN) == 3, "the map reports three stages")
+	_check(
+		manager.stage_count(DotTimerTrack.of_bonus(1)) == 0,
+		"and none on a track that has none"
+	)
+	_check(
+		manager.stage_zone(DotTimerTrack.MAIN, 2) != null,
+		"a stage zone is found by its number"
+	)
+	_check(
+		manager.stage_zone(DotTimerTrack.MAIN, 9) == null,
+		"and an absent one is null rather than the nearest"
+	)
+	_check(
+		manager.tracks().has(DotTimerTrack.MAIN),
+		"and the playable tracks reach a caller"
+	)
+
+	# The signal carries the zone. Captured into an Array rather than into a local:
+	# a GDScript lambda captures locals BY VALUE, so a counter incremented inside a
+	# handler stays zero outside it and the test reports a failure for a signal that
+	# fired perfectly.
+	var asked: Array = []
+	manager.stage_requested.connect(
+		func(id: StringName, number: int, zone: DotTimerZone) -> void:
+			asked.append([id, number, zone])
+	)
+
+	var res := manager.request_stage(&"nav", 2)
+
+	_check(res.ok, "a stage in range is granted", res.code() if not res.ok else "")
+	_check(asked.size() == 1, "and the host is told exactly once")
+
+	if asked.size() == 1:
+		var zone: DotTimerZone = asked[0][2]
+		_check(int(asked[0][1]) == 2, "with the stage number")
+		_check(
+			zone != null and is_equal_approx(zone.destination_yaw, 90.0),
+			"and the zone, carrying where to put them"
+		)
+
+	# Refused rather than clamped, for the reason DotTimerTrack.parse returns -1
+	# rather than falling back to the main track.
+	var too_high := manager.request_stage(&"nav", 9)
+	_check(not too_high.ok, "a stage past the last one is refused")
+	_check(
+		asked.size() == 1, "and no host is asked to move anybody for a refused one"
+	)
+	_check(not manager.request_stage(&"nav", 0).ok, "and so is stage 0")
+	_check(not manager.request_stage(&"nobody", 1).ok, "and so is an unknown player")
+
+	# A run in progress does not survive being teleported into the middle of a map.
+	# A player put at stage 2 has not run the first half of it, and a timer that let
+	# that time stand would be filing a record for a run nobody made.
+	var timer := manager.timer_for(&"nav")
+	_walk_timer_into_run(manager, &"nav")
+	_check(timer.run.is_running(), "a run is under way before the request")
+
+	manager.request_stage(&"nav", 1)
+	_check(not timer.run.is_running(), "and asking for a stage abandons it")
+
+	# `!rs`: the stage you are on, and stage 1 when you have not reached one.
+	var restart := manager.restart_stage(&"nav")
+	_check(restart.ok, "restart_stage works before any stage is reached")
+	_check(
+		asked.size() >= 2 and int(asked[-1][1]) == 1,
+		"and means stage 1 there, rather than stage 0"
+	)
+
+	# A map with no stages at all refuses, and says which map and track.
+	var flat := DotTimerZoneSet.new()
+	flat.map_id = &"test_flat"
+	flat.add(DotTimerZone.make(DotTimerZone.Kind.START).set_box(
+		Vector3(0.0, -2.0, -4.0), Vector3(4.0, 4.0, 4.0)
+	))
+	flat.add(DotTimerZone.make(DotTimerZone.Kind.END).set_box(
+		Vector3(96.0, -2.0, -4.0), Vector3(100.0, 4.0, 4.0)
+	))
+	manager.set_zones(flat)
+
+	var none := manager.request_stage(&"nav", 1)
+	_check(not none.ok, "a map with no stages refuses a stage request")
+	_check(
+		none.error != null and none.error.message.contains("test_flat"),
+		"and names the map in the refusal",
+		none.error.message if none.error != null else ""
+	)
+
+	manager.queue_free()
+
+
+## Ticks a player far enough into the corridor to be mid-run, without finishing.
+func _walk_timer_into_run(manager: DotTimerManager, id: StringName) -> void:
+	var speed := 10.0
+	var step := speed / 128.0
+	var x := 1.0
+
+	# Out of the start zone (x >= 4) and short of the finish (x < 96).
+	while x < 30.0:
+		x += step
+		manager.tick_player(
+			id, Vector3(x, 0.0, 0.0), Vector3(speed, 0.0, 0.0), true, true, 0.0, 0.0
+		)
+
+
+func _test_hud_overlay() -> void:
+	print("the timer HUD lays itself out")
+
+	# An interface is the one part of this family whose bugs are invisible to
+	# assertions — every property is correct and nothing fails. What CAN be asserted
+	# is a SIZE, which is the check this tree learned to write after shipping 0 x 0
+	# `Control`s twice, and a POSITION, which is what "overlay" means here.
+	var hud := DotTimerHud.new()
+	hud.size = Vector2(1600.0, 900.0)
+	add_child(hud)
+
+	var run := DotTimerRun.make(DotTimerTrack.MAIN, &"normal", 1.0 / 128.0)
+	run.begin(0.0)
+	run.ticks = 640
+
+	hud.show_run(run, 12.0, {"jumps": 14, "strafes": 30, "sync": 0.87})
+	hud.style_name = "Normal"
+	hud.set_stage_reference(3, {2: 4.0})
+
+	var block := hud.block_size()
+
+	_check(block.x > 0.0 and block.y > 0.0, "the block measures to something", str(block))
+
+	# The whole complaint about the old one, as a number: five lines of text at three
+	# font sizes down the left of the screen. A block that is a fifth of a 900px
+	# viewport tall, or half its width, is a debug readout rather than an overlay.
+	_check(
+		block.y < 130.0,
+		"and it is short enough to be an overlay",
+		"%.0f px tall" % block.y
+	)
+	_check(
+		block.x < 800.0,
+		"and narrow enough to sit under a crosshair",
+		"%.0f px wide" % block.x
+	)
+
+	# Compact packs the details onto one line; the old layout is still reachable.
+	hud.compact = false
+	var tall := hud.block_size()
+	_check(tall.y > block.y, "turning compact off gives the taller stacked layout")
+	hud.compact = true
+
+	# Placement. `Corner` would have been the obvious name and is a GLOBAL Godot enum
+	# — the one StyleBox corner radii are indexed by — so an inner enum of that name
+	# makes every assignment to this property a parse error pointing at the
+	# assignment rather than at the name.
+	hud.corner = DotTimerHud.Placement.BOTTOM_CENTRE
+	var bottom := hud._plate_origin(block)
+	hud.corner = DotTimerHud.Placement.TOP_LEFT
+	var top := hud._plate_origin(block)
+
+	_check(bottom.y > top.y, "the bottom placement is below the top one")
+	_check(bottom.x > top.x, "and the centred one is right of the left one")
+	_check(
+		is_equal_approx(bottom.x + block.x * 0.5, 800.0),
+		"and is actually centred in the rect",
+		"%.1f" % (bottom.x + block.x * 0.5)
+	)
+	_check(
+		is_equal_approx(top.x, hud.margin.x) and is_equal_approx(top.y, hud.margin.y),
+		"and the top-left one clears the margin"
+	)
+
+	hud.corner = DotTimerHud.Placement.BOTTOM_RIGHT
+	var right := hud._plate_origin(block)
+	_check(
+		is_equal_approx(right.x + block.x + hud.margin.x, 1600.0),
+		"and the right-hand one clears the right edge"
+	)
+
+	# The stage line is the `stage_count` consumer. Without a count it draws nothing,
+	# which is what a map with no stages should look like.
+	run.mark_stage(2, 0.0)
+	hud.show_run(run, 12.0, {})
+	var with_stages := hud.block_size()
+
+	hud.set_stage_reference(0, {})
+	var without := hud.block_size()
+
+	_check(
+		with_stages.x > without.x,
+		"a staged map draws a stage field and a flat one does not"
+	)
+
+	# The splits handed in are COPIED. A Dictionary is a reference in GDScript, and
+	# three of DotTimerRecord's dictionaries have already been this bug once.
+	var splits := {2: 4.0}
+	hud.set_stage_reference(3, splits)
+	hud.stage_comparison[2] = 99.0
+	_check(
+		is_equal_approx(float(splits[2]), 4.0),
+		"and the caller's own splits are not aliased by the HUD"
+	)
+
+	hud.queue_free()
 
 
 func _test_other_track_ignored() -> void:

@@ -137,6 +137,25 @@ func stage_count(track: int) -> int:
 	return highest
 
 
+## The stage zone numbered [param number] on [param track], or null.
+##
+## [b]What "go to stage 3" resolves against.[/b] Shavit's `!s3` and `!rs` are the
+## commands this genre's players reach for on a staged map, and both of them are this
+## lookup plus the zone's [member DotTimerZone.destination]. Without it a staged map
+## is a map with splits on it: the stages exist, they are numbered, and there is no
+## way to practise one.
+func stage_zone(track: int, number: int) -> DotTimerZone:
+	for zone in zones:
+		if (
+			zone.kind == DotTimerZone.Kind.STAGE
+			and zone.track == track
+			and int(zone.number) == number
+		):
+			return zone
+
+	return null
+
+
 # --- Validation ------------------------------------------------------------
 
 ## Problems that make the set unusable. Empty means it is fine.
