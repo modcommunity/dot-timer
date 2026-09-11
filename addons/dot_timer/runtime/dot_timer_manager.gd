@@ -787,8 +787,8 @@ func set_player_track(id: StringName, track: int) -> bool:
 
 # --- Stages ----------------------------------------------------------------
 #
-# The navigation half of a staged map, which is what Counter-Strike's staged maps and
-# Shavit's `sm_stages` / `sm_stagerestart` are. dot-timer has carried stage zones,
+# The navigation half of a staged map, which is what the timer community's staged maps
+# and Shavit's `sm_stages` / `sm_stagerestart` are. dot-timer has carried stage zones,
 # sub-tick splits and `stage_count` since it was written and NOTHING read any of it:
 # `stage_count` occurred exactly once in the whole family, which is this tree's own
 # mechanical detector for a value produced correctly and consumed by nothing.

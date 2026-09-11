@@ -585,8 +585,8 @@ func _test_stages_and_splits() -> void:
 func _test_stage_navigation() -> void:
 	print("stage navigation")
 
-	# The navigation half of a staged map: Counter-Strike's staged maps, and Shavit's
-	# `sm_stages` / `sm_stagerestart`. dot-timer has carried stage zones, splits and
+	# The navigation half of a staged map: the timer community's staged maps, and
+	# Shavit's `sm_stages` / `sm_stagerestart`. dot-timer has carried stage zones, splits and
 	# `stage_count` since it was written and NOTHING read any of it — `stage_count`
 	# occurred exactly once in the whole family, which is this tree's own mechanical
 	# detector for a value produced correctly and consumed by nothing.

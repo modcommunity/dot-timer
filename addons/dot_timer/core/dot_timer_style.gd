@@ -5,7 +5,7 @@ extends Resource
 ## The records half of a style: is it ranked, what are its points worth, what is the
 ## shortest run that counts.
 ##
-## [b]The other half is [code]DotFpsStyle[/code] in dot-fps-controller[/b], and the
+## [b]The other half is [code]DotFpsStyle[/code] in dot-player-controller[/b], and the
 ## split is deliberate. Movement belongs where the motor is; records belong where the
 ## records are. A game that only wants a timer over its own movement does not have to
 ## install a first-person controller to get one, and a 2D game — which cannot use

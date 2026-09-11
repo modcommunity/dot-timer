@@ -8,7 +8,7 @@ autoloads, `DotNodeRef` instead of scene paths, `DotResult` for anything fallibl
 `Dot`-prefixed class names, layered configuration, `describe()` on anything stateful.
 This file is only what is specific to timing.
 
-**Only dot-core is a dependency.** Not dot-fps-controller, not dot-net, not
+**Only dot-core is a dependency.** Not dot-player-controller, not dot-net, not
 dot-server. That is deliberate and it is load-bearing — see "Why it depends on
 nothing" below.
 
@@ -94,9 +94,9 @@ Three things fall out of that, and all three are the point:
   One records table, one leaderboard, one replay format for a surf map and a racing
   course. Getting that third axis wrong is the likeliest way to draw a 2D zone that
   never fires, which is why `flatten_for_2d` exists rather than being a comment.
-- **A server that does not use dot-fps-controller still gets timers.**
+- **A server that does not use dot-player-controller still gets timers.**
 - **The movement half and the records half of a "style" are separate classes.**
-  `DotFpsStyle` (in dot-fps-controller) transforms the tunables and filters the
+  `DotFpsStyle` (in dot-player-controller) transforms the tunables and filters the
   command; `DotTimerStyle` (here) says whether runs count, what they are worth and
   what the shortest recordable run is. Paired by id, enforced by nothing, because
   enforcing it would mean naming a class that may not exist.
@@ -185,7 +185,7 @@ this server files will be wrong by their ratio", about a client that files none.
 
 ## Stages, and the half that was missing
 
-A staged map — Counter-Strike's shape, and what most surf and bhop maps past the
+A staged map — the timer community's shape, and what most surf and bhop maps past the
 beginner tier are — is a course divided into numbered sections with a line between each.
 The **model** for it has been here since the addon was written: `DotTimerTrack` is 0 for
 the main route and 1..8 for bonuses, `DotTimerZone.Kind.STAGE` splits a run with a
@@ -408,7 +408,7 @@ process killed mid-write must leave the previous board intact. Past a few thousa
 rows per board, subclass `DotTimerStore` against a database — nothing above it
 changes.
 
-## Wiring it to dot-fps-controller
+## Wiring it to dot-player-controller
 
 ```gdscript
 # once
@@ -548,7 +548,7 @@ sixth was found by game-playground, from the other side:
 | Whether a practised run may rank | `DotTimerStyle.allow_checkpoints` |
 | Where records live | `DotTimerStore` subclass on `DotTimerManager.store` |
 | What a style is worth | `DotTimerStyle`, and `points_for` to change the formula |
-| How the movement changes per style | `DotFpsStyle` in dot-fps-controller |
+| How the movement changes per style | `DotFpsStyle` in dot-player-controller |
 | A new kind of volume | `DotTimerZone.Kind.CUSTOM` plus `payload`, read on `effect_requested` |
 | What a teleport / respawn / slay does | `effect_requested`, always. The timer never acts |
 | The map's difficulty tier | `DotTimerZoneSet.meta["tier"]`, or override `DotTimerManager.map_tier` |

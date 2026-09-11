@@ -35,7 +35,7 @@ const TICK_BITS := 22
 ## [b]An index, and it is a real trade.[/b] A name is self-describing and costs 8-16
 ## bytes per message; an index is 5 bits and is meaningless unless both ends agree
 ## about the table. The family already requires that agreement for modifier indices
-## and message ids — see the note about registration order in dot-fps-controller —
+## and message ids — see the note about registration order in dot-player-controller —
 ## and the same rule applies: build the style table from the same code on both sides,
 ## in a fixed order, never conditionally.
 const STYLE_BITS := 5

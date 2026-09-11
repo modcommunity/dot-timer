@@ -104,7 +104,7 @@ var tainted: bool = false
 ## Movement statistics, as a plain dictionary.
 ##
 ## A dictionary rather than a [code]DotFpsStats[/code] because dot-timer must compile
-## without dot-fps-controller. The host folds its own statistics in with
+## without dot-player-controller. The host folds its own statistics in with
 ## [method note_stats]; a 2D game supplies whatever it measures instead.
 var stats: Dictionary = {}
 
