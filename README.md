@@ -12,47 +12,27 @@ This asset, along with all the others, was built initially with **Claude Code** 
 I intend on reviewing code, testing, and editing documentation regularly. If you're interested in helping out, please let me know!
 
 ## Speedrun Timers
-**Speedrun timers for Godot 4** — bunny-hop, surf, KZ, and anything else run against
-the clock.
+**Speedrun timers for Godot 4** — bunny-hop, surf, KZ, and anything else run against the clock.
 
-Zones a mapper draws in the world, tracks and bonuses, stages and splits, styles,
-per-run statistics, replays, records and leaderboards. Counted in ticks with sub-tick
-zone crossings, so **a run set on a 64 Hz server is comparable with one set on a
-128 Hz server** — which is what lets two servers share a records table.
+Zones a mapper draws in the world, tracks and bonuses, stages and splits, styles, per-run statistics, replays, records and leaderboards. Counted in ticks with sub-tick zone crossings, so **a run set on a 64 Hz server is comparable with one set on a 128 Hz server** — which is what lets two servers share a records table.
 
-Shaped by the community timer plugins the genre grew up on, rewritten for Godot and
-for a client that
-predicts its own clock.
+Shaped by the community timer plugins the genre grew up on, rewritten for Godot and for a client that predicts its own clock.
 
 ## What it gives you
 
-- **Zones**: start, end, stage, checkpoint, teleport, respawn, slay, stop, spawn,
-  speed limit, gravity, air acceleration, push, no-jump, auto-hop, freestyle, slide,
-  and your own. Drawn in the editor **or** from inside the game with two console
-  commands, into the same JSON file.
-- **Tracks**: a main route and up to eight bonuses, each with its own zones, records
-  and leaderboard.
-- **Styles**: sideways, half-sideways, backwards, low gravity, prebhop — a ranking
-  weight and a minimum time here, the movement transform in
-  [dot-fps-controller](https://github.com/modcommunity/dot-fps-controller).
-- **Replays**: quantised and delta-encoded to under 12 bytes a frame, with playback
-  sampled at a time so it runs at the right speed on any monitor.
-- **Records**: a store interface with in-memory and file implementations, ranking
-  points, and the structural refusals that make the obvious exploits impossible.
-- **Practice mode**: `+cp` / `+tp` checkpoints, with the taint rules the genre
-  expects — saving is free, restoring costs you the run.
-- **A HUD**: clock, split against a personal best or the record, speedometer, strafe
-  statistics. No art, no theme — you style it.
-- **Configured like a server**, not like a scene: `DotTimerConfig` layers a file, the
-  environment and the command line, and takes its tick rate from `sv_tickrate`.
-- **2D as well as 3D.** The timer works on positions, not on a controller — a 2D game
-  passes `Vector3(x, y, 0)` against zones authored with `DotTimerZoneVolume2D`, and
-  files into the same records table a surf server does.
+- **Zones**: start, end, stage, checkpoint, teleport, respawn, slay, stop, spawn, speed limit, gravity, air acceleration, push, no-jump, auto-hop, freestyle, slide, and your own. Drawn in the editor **or** from inside the game with two console commands, into the same JSON file.
+- **Tracks**: a main route and up to eight bonuses, each with its own zones, records and leaderboard.
+- **Styles**: sideways, half-sideways, backwards, low gravity, prebhop — a ranking weight and a minimum time here, the movement transform in [dot-fps-controller](https://github.com/modcommunity/dot-fps-controller).
+- **Replays**: quantised and delta-encoded to under 12 bytes a frame, with playback sampled at a time so it runs at the right speed on any monitor.
+- **Records**: a store interface with in-memory and file implementations, ranking points, and the structural refusals that make the obvious exploits impossible.
+- **Practice mode**: `+cp` / `+tp` checkpoints, with the taint rules the genre expects — saving is free, restoring costs you the run.
+- **A HUD**: clock, split against a personal best or the record, speedometer, strafe statistics. No art, no theme — you style it.
+- **Configured like a server**, not like a scene: `DotTimerConfig` layers a file, the environment and the command line, and takes its tick rate from `sv_tickrate`.
+- **2D as well as 3D.** The timer works on positions, not on a controller — a 2D game passes `Vector3(x, y, 0)` against zones authored with `DotTimerZoneVolume2D`, and files into the same records table a surf server does.
 
 ## Installing
 
-Copy `addons/dot_timer/` and [`dot-core`](https://github.com/modcommunity/dot-core)'s `addons/dot_core/` into your
-project, and enable dot-timer in *Project → Project Settings → Plugins*.
+Copy `addons/dot_timer/` and [`dot-core`](https://github.com/modcommunity/dot-core)'s `addons/dot_core/` into your project, and enable dot-timer in *Project → Project Settings → Plugins*.
 
 Only dot-core is required. dot-fps-controller, dot-net and dot-server are optional.
 
@@ -85,14 +65,11 @@ manager.tick_player(
 )
 ```
 
-Not from `_process`. A timer sampled per frame counts a different number of ticks on
-a 144 Hz monitor than on a 60 Hz one, and the player's time then depends on their
-hardware.
+Not from `_process`. A timer sampled per frame counts a different number of ticks on a 144 Hz monitor than on a 60 Hz one, and the player's time then depends on their hardware.
 
 ## Drawing zones without an editor
 
-The way these maps have been zoned for twenty years — walk to one corner, run a
-command, walk to the other, run it again:
+The way these maps have been zoned for twenty years — walk to one corner, run a command, walk to the other, run it again:
 
 ```gdscript
 var painter := DotTimerZonePainter.on(manager.zones)
@@ -104,14 +81,11 @@ painter.mark(player_position)   # second corner, and the zone exists
 manager.zones.save_json("user://zones/surf_beginner.json")
 ```
 
-It adds height above the marked corners for you, because both marks are taken at your
-feet and a zone with no height is one nothing ever enters.
+It adds height above the marked corners for you, because both marks are taken at your feet and a zone with no height is one nothing ever enters.
 
 ## Documentation
 
-[`CLAUDE.md`](CLAUDE.md) has the design reasoning: why a time is a tick count plus two
-fractions, why the timer depends on nothing but dot-core, what each refusal in
-`can_record` is defending against, and the four bugs the self-test found.
+[`CLAUDE.md`](CLAUDE.md) has the design reasoning: why a time is a tick count plus two fractions, why the timer depends on nothing but dot-core, what each refusal in `can_record` is defending against, and the four bugs the self-test found.
 
 ## Validating
 
