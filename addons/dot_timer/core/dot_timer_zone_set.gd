@@ -232,14 +232,30 @@ func problems() -> PackedStringArray:
 ## A finish volume thinner than that is not sampled on any tick the player is inside
 ## it, so the run simply never ends — for the fast players only, which is exactly the
 ## population that notices.
-func thin_zones(fastest_speed: float, tick_rate: int) -> Array[DotTimerZone]:
-	var per_tick := fastest_speed / maxf(float(tick_rate), 1.0)
+##
+## [b]`fastest_fall_speed` is how fast a player crosses a zone's Y extent[/b], and
+## zero means "the same as `fastest_speed`", which is what every caller got before the
+## split existed. It is separate because the two are not the same number on a map
+## built for jumping: a height band a player enters on the way up at 7 m/s and a floor
+## they arrive at out of a long drop are the same shape and only one of them is a bug.
+## See [method DotTimerZone.is_thin_for] for why the conservative default is the
+## horizontal speed rather than something gravity-sized.
+func thin_zones(
+	fastest_speed: float,
+	tick_rate: int,
+	fastest_fall_speed: float = 0.0
+) -> Array[DotTimerZone]:
+	var ticks := maxf(float(tick_rate), 1.0)
+	var per_tick := fastest_speed / ticks
+	var fall_per_tick := (
+		fastest_fall_speed / ticks if fastest_fall_speed > 0.0 else per_tick
+	)
 	var out: Array[DotTimerZone] = []
 
 	for zone in zones:
 		if zone.is_point_kind():
 			continue
-		if zone.min_thickness() < per_tick:
+		if zone.is_thin_for(per_tick, fall_per_tick):
 			out.append(zone)
 
 	return out

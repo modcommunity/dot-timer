@@ -84,6 +84,20 @@ extends DotConfig
 ## property of the game rather than of the addon. A surf server sets this high.
 @export_range(1.0, 500.0, 1.0) var fastest_expected_speed: float = 40.0
 
+## Speed a player is assumed to FALL at, in m/s, for the thin-zone warning. Zero means
+## "the same as [member fastest_expected_speed]".
+##
+## [b]Separate because a floor and a wall are not crossed at the same speed, and zero
+## by default because guessing low here is how the warning goes quiet on a real
+## bug.[/b] A map built for jumping is full of height bands a player enters on the way
+## up at walking speed, and warning about every one of them trains everybody to ignore
+## the warning. But a pit volume drawn as a thin horizontal plane is the same shape,
+## and a player falling into it at genre speed passes straight through — that is the
+## single most common defect in an imported map. Lower this only for a game that knows
+## how far its players can fall; a surf server that caps velocity at 3500 u/s on every
+## axis leaves it alone.
+@export_range(0.0, 500.0, 1.0) var fastest_expected_fall_speed: float = 0.0
+
 ## Whether practice checkpoints exist at all.
 ##
 ## The server's switch. What using one COSTS is the style's — see

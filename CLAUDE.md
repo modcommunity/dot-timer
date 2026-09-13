@@ -135,6 +135,16 @@ work": at 128 Hz a player at 30 m/s crosses 23 cm in a tick, and a finish volume
 thinner than that is never sampled with the player inside it, so the run simply never
 ends. For the fast players only, which is exactly the population that notices.
 
+**It is judged per axis**, because a wall and a floor are not crossed at the same
+speed. The X and Z extents are measured against `fastest_expected_speed`; the Y extent
+is measured against `fastest_expected_fall_speed`, which is **zero — meaning "the same
+number" — by default**. Guessing low there is how the warning goes quiet on the single
+most common defect in an imported map: a pit volume drawn as a thin horizontal plane,
+which the engines those maps were built for swept their trigger tests to catch and
+dot-timer does not (48 of one map's 53 zones were that thin). A game lowers it only
+once it knows how far its players can actually fall. A map full of height bands a
+player enters on the way up — a jumping course's splits — is the case that wants it.
+
 **`fingerprint()` deliberately ignores comments and ids.** Moving a finish line
 invalidates every record on the map; correcting a mapper's typo does not, and a
 records system that punished tidying up is one nobody tidies up.

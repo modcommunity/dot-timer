@@ -361,12 +361,15 @@ func set_zones(set: DotTimerZoneSet) -> DotResult:
 		# volume thinner than that is one the fastest players pass straight through
 		# without the run ever ending.
 		var speed := config.fastest_expected_speed if config != null else 40.0
+		var fall := config.fastest_expected_fall_speed if config != null else 0.0
 
-		for zone in set.thin_zones(speed, tick_rate):
+		for zone in set.thin_zones(speed, tick_rate, fall):
 			DotLog.warn(CHANNEL, "a zone is thinner than one tick of travel", {
 				"map": String(set.map_id),
 				"zone": zone.describe(),
-				"at": "%.0f m/s, %d Hz" % [speed, tick_rate],
+				"at": "%.0f m/s across, %.0f m/s down, %d Hz" % [
+					speed, fall if fall > 0.0 else speed, tick_rate
+				],
 			})
 
 	# [b]Only where it is true.[/b] On an authoritative timer a rate that disagrees with

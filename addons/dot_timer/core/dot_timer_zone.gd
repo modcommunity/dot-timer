@@ -245,6 +245,33 @@ func min_thickness() -> float:
 	return minf(s.x, minf(s.y, s.z))
 
 
+## Whether a player moving this fast steps clean over the zone between two ticks.
+##
+## [b]Per axis, because a floor and a wall are not crossed at the same speed.[/b] The
+## extents crossed horizontally are judged against a player's ground speed; the Y
+## extent is judged against how fast they FALL through it, which on a map with a
+## jumping course is a different number by an order of magnitude. A half-metre height
+## band entered on the way up at 7 m/s is sampled on six ticks; the same band on a map
+## where players arrive out of a hundred-metre drop is not sampled at all.
+##
+## [b]The vertical budget is not automatically the smaller one, and defaults to the
+## horizontal one for that reason.[/b] A pit volume drawn as a thin horizontal plane —
+## which is how the shipped surf maps draw them, because the engines that ran them
+## swept their trigger tests instead of sampling — is exactly the case this has to
+## keep catching, and it is thin on Y: 48 of one imported map's 53 zones were. A game
+## lowers the vertical budget only once it knows how far its players can fall.
+##
+## Both arguments are metres per tick, not metres per second.
+func is_thin_for(horizontal_per_tick: float, vertical_per_tick: float) -> bool:
+	if shape == Shape.SPHERE:
+		# Equally thin in every direction, so the fastest axis is the only one that
+		# decides it.
+		return number * 2.0 < maxf(horizontal_per_tick, vertical_per_tick)
+
+	var s := size()
+	return minf(s.x, s.z) < horizontal_per_tick or s.y < vertical_per_tick
+
+
 func validate() -> DotResult:
 	if not DotTimerTrack.is_valid(track):
 		return DotResult.fail(

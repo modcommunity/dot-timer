@@ -20,7 +20,7 @@ extends Node
 ## — the property under test belongs to [DotTimer], and against a hand-computed path a
 ## failure has exactly one possible cause.
 
-const CHECKS := 285
+const CHECKS := 289
 
 var _passed := 0
 var _failed := 0
@@ -305,6 +305,40 @@ func _test_zone_set_validation() -> void:
 	_check(
 		thin.thin_zones(1.0, 128).is_empty(),
 		"and is fine for a slow one"
+	)
+	_check(
+		thin.thin_zones(30.0, 128, 1.0).size() == 1,
+		"and is still flagged when only the FALL budget is slow, because it is a wall"
+	)
+
+	# The axis split. A height band is thin on Y and enormous everywhere else, and
+	# whether that is a bug is a question about falling, not about running: the bands
+	# on a jumping course are entered on the way up at walking speed.
+	var band := DotTimerZoneSet.new()
+	band.add(DotTimerZone.make(DotTimerZone.Kind.STAGE).set_box(
+		Vector3(-9.0, 5.0, -9.0), Vector3(9.0, 5.6, 9.0)
+	))
+	band.zones[band.zones.size() - 1].number = 1.0
+
+	_check(
+		band.thin_zones(67.0, 60).size() == 1,
+		"a 60 cm height band is flagged while falls are assumed as fast as runs"
+	)
+	_check(
+		band.thin_zones(67.0, 60, 20.0).is_empty(),
+		"and is fine once the game says how fast a player there can fall"
+	)
+
+	# And the case the vertical budget must never quietly excuse: a pit drawn as a thin
+	# horizontal plane, which is how an imported map draws every one of them.
+	var pit := DotTimerZoneSet.new()
+	pit.add(DotTimerZone.make(DotTimerZone.Kind.RESPAWN).set_box(
+		Vector3(-32.0, 0.0, -32.0), Vector3(32.0, 0.4, 32.0)
+	))
+
+	_check(
+		pit.thin_zones(67.0, 60, 40.0).size() == 1,
+		"a 40 cm pit plane is flagged for a player falling into it at 40 m/s"
 	)
 
 
