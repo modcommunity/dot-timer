@@ -17,7 +17,9 @@ extends RefCounted
 ## while a player is inside it; rebuilding takes under a millisecond for a hundred
 ## zones and removes the entire class of question.
 
-const CHANNEL := "timer.index"
+# No log channel: a derived lookup, rebuilt from a zone set and asked thirty times a
+# tick. It cannot fail, and what is wrong with the zones it indexes is reported by
+# DotTimerZoneSet.problems(), which the manager logs on load.
 
 ## Edge length of a grid cell, in metres.
 ##

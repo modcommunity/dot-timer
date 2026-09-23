@@ -29,7 +29,9 @@ extends RefCounted
 ## game's — restoring into a [code]DotFpsState[/code], a 2D body or a replay scrubber
 ## are three different things and none of them belongs here.
 
-const CHANNEL := "timer.checkpoints"
+# No log channel: one player's practice state. Saving and restoring are keypresses, a
+# line per press is noise, and the one consequence that matters -- the run is tainted --
+# belongs to DotTimer, which is told.
 
 ## A saved checkpoint was added, replaced or removed.
 signal changed(count: int, index: int)

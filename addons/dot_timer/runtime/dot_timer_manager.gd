@@ -672,6 +672,19 @@ func _file(found: Player, record: DotTimerRecord) -> void:
 	var wrote := store.put(record)
 
 	if not wrote.ok:
+		# ERROR, because this is not a refusal. Whether a run may be filed was decided
+		# by DotTimer.can_record before it got here, and a store never decides that --
+		# so a failed put is a clean, finished run lost to a disk or a service. The
+		# signal tells the player; before this line nothing told the operator.
+		DotLog.error(CHANNEL, "a finished run could not be stored", {
+			"player": String(record.player_id),
+			"map": String(record.map_id),
+			"track": record.track,
+			"style": String(record.style_id),
+			"time": record.time,
+			"code": wrote.code(),
+			"error": wrote.error.message if wrote.error != null else "",
+		})
 		record_refused.emit(found.id, found.last_finished, wrote.error.message)
 		found.last_replay = null
 		return

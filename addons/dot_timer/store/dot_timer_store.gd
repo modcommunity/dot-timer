@@ -21,7 +21,9 @@ extends RefCounted
 ## [DotTimerStoreFile] for a JSON file per board.
 ## A game wanting SQL or the TMC backbone subclasses this; see dot-leaderboard.
 
-const CHANNEL := "timer.store"
+# No log channel: an abstract interface with no public wrapper for a line to live in --
+# subclasses override put() and the rest directly. The file store logs its own disk
+# trouble, and a failed put() is logged by DotTimerManager._file, its one caller.
 
 
 ## Files a record. Returns the previous best for the same player, or null.

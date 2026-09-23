@@ -24,7 +24,8 @@ extends Resource
 ## needs the zones to draw them and to predict its own crossing; only the server's
 ## copy decides a record. See [DotTimer].
 
-const CHANNEL := "timer.zones"
+# No log channel: the document a mapper trades. Loading and saving return a DotResult
+# and problems() returns strings; DotTimerManager logs both, with the map it was loading.
 
 ## Format version written into every file.
 ##
