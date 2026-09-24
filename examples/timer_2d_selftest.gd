@@ -41,9 +41,17 @@ const FINISH_W := 100.0
 
 const CHECKS := 25
 
+## Sections entered against sections that ran to their last line, and against this. A
+## runtime error inside a section aborts that function and nothing says so; a section that
+## bailed out early after a failed guard is counted as not finished on purpose. The CHECKS
+## total is the other half — see docs/testing.md.
+const SECTIONS := 4
+
 var _passed := 0
 var _failed := 0
 var _failures := PackedStringArray()
+var _entered := 0
+var _completed := 0
 
 
 func _ready() -> void:
@@ -66,6 +74,13 @@ func _run() -> void:
 	for line in _failures:
 		print("  FAIL  %s" % line)
 
+	print("%d of %d sections ran to their last line" % [_completed, _entered])
+	if _entered != SECTIONS or _completed != _entered:
+		print("ERROR: %d sections entered and %d completed, %d expected. One aborted or was skipped." % [
+			_entered, _completed, SECTIONS
+		])
+		get_tree().quit(1)
+		return
 	# The total the section counter cannot be. A runtime error inside a section aborts
 	# that function, and the counter is satisfied because the section had already
 	# announced itself. See docs/testing.md.
@@ -76,6 +91,16 @@ func _run() -> void:
 		get_tree().quit(1)
 		return
 	get_tree().quit(1 if _failed > 0 else 0)
+
+
+func _section(title: String) -> void:
+	_entered += 1
+	print(title)
+
+
+## A section reached its last line. See [constant SECTIONS].
+func _done() -> void:
+	_completed += 1
 
 
 func _check(ok: bool, what: String, detail: String = "") -> void:
@@ -140,7 +165,7 @@ func _build_course() -> Node2D:
 
 
 func _test_zones_are_authored_in_2d() -> void:
-	print("zones authored in the 2D editor")
+	_section("zones authored in the 2D editor")
 
 	var course := _build_course()
 	var zones := DotTimerZoneVolume2D.collect(course, &"course_2d")
@@ -171,10 +196,11 @@ func _test_zones_are_authored_in_2d() -> void:
 	)
 
 	course.queue_free()
+	_done()
 
 
 func _test_a_2d_run() -> void:
-	print("a 2D run")
+	_section("a 2D run")
 
 	var course := _build_course()
 	var zones := DotTimerZoneVolume2D.collect(course, &"course_2d")
@@ -258,6 +284,7 @@ func _test_a_2d_run() -> void:
 	)
 
 	course.queue_free()
+	_done()
 
 
 ## Runs the same course at another tick rate and returns the time.
@@ -290,7 +317,7 @@ func _run_at(tick_rate: int) -> float:
 
 
 func _test_the_third_axis_trap() -> void:
-	print("the third-axis trap")
+	_section("the third-axis trap")
 
 	# What a 2D game gets if it builds a zone by hand from its own coordinates and
 	# forgets that a box needs depth. This is the failure the volume node exists to
@@ -324,10 +351,11 @@ func _test_the_third_axis_trap() -> void:
 	)
 
 	node.queue_free()
+	_done()
 
 
 func _test_a_2d_record() -> void:
-	print("a 2D record")
+	_section("a 2D record")
 
 	var course := _build_course()
 	var zones := DotTimerZoneVolume2D.collect(course, &"course_2d")
@@ -406,3 +434,4 @@ func _test_a_2d_record() -> void:
 
 	manager.queue_free()
 	course.queue_free()
+	_done()

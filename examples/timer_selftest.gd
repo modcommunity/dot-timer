@@ -22,9 +22,17 @@ extends Node
 
 const CHECKS := 289
 
+## Sections entered against sections that ran to their last line, and against this. A
+## runtime error inside a section aborts that function and nothing says so; a section that
+## bailed out early after a failed guard is counted as not finished on purpose. The CHECKS
+## total is the other half — see docs/testing.md.
+const SECTIONS := 32
+
 var _passed := 0
 var _failed := 0
 var _failures := PackedStringArray()
+var _entered := 0
+var _completed := 0
 
 
 func _ready() -> void:
@@ -75,6 +83,13 @@ func _run() -> void:
 	for line in _failures:
 		print("  FAIL  %s" % line)
 
+	print("%d of %d sections ran to their last line" % [_completed, _entered])
+	if _entered != SECTIONS or _completed != _entered:
+		print("ERROR: %d sections entered and %d completed, %d expected. One aborted or was skipped." % [
+			_entered, _completed, SECTIONS
+		])
+		get_tree().quit(1)
+		return
 	# The total the section counter cannot be. A runtime error inside a section aborts
 	# that function, and the counter is satisfied because the section had already
 	# announced itself. See docs/testing.md.
@@ -88,6 +103,16 @@ func _run() -> void:
 
 
 # --- Helpers ---------------------------------------------------------------
+
+func _section(title: String) -> void:
+	_entered += 1
+	print(title)
+
+
+## A section reached its last line. See [constant SECTIONS].
+func _done() -> void:
+	_completed += 1
+
 
 func _check(ok: bool, what: String, detail: String = "") -> void:
 	if ok:
@@ -177,7 +202,7 @@ func _walk(
 # --- Tracks ----------------------------------------------------------------
 
 func _test_track_names() -> void:
-	print("tracks")
+	_section("tracks")
 
 	_check(DotTimerTrack.parse("main") == DotTimerTrack.MAIN, "\"main\" is the main track")
 	_check(DotTimerTrack.parse("bonus 3") == 3, "\"bonus 3\" is track 3")
@@ -191,12 +216,13 @@ func _test_track_names() -> void:
 
 	_check(DotTimerTrack.is_bonus(1), "track 1 is a bonus")
 	_check(not DotTimerTrack.is_bonus(0), "track 0 is not")
+	_done()
 
 
 # --- Zones -----------------------------------------------------------------
 
 func _test_zone_geometry() -> void:
-	print("zone geometry")
+	_section("zone geometry")
 
 	var box := DotTimerZone.make(DotTimerZone.Kind.START)
 	box.set_box(Vector3(4.0, 0.0, 4.0), Vector3(0.0, -2.0, 0.0))
@@ -248,10 +274,11 @@ func _test_zone_geometry() -> void:
 		flat.contains(Vector3(5.0, 5.0, 0.0)),
 		"and flatten_for_2d is what fixes it"
 	)
+	_done()
 
 
 func _test_zone_set_validation() -> void:
-	print("zone set validation")
+	_section("zone set validation")
 
 	var good := _corridor()
 	_check(good.problems().is_empty(), "a well-formed corridor has no problems",
@@ -340,10 +367,11 @@ func _test_zone_set_validation() -> void:
 		pit.thin_zones(67.0, 60, 40.0).size() == 1,
 		"a 40 cm pit plane is flagged for a player falling into it at 40 m/s"
 	)
+	_done()
 
 
 func _test_zone_set_round_trip() -> void:
-	print("zone sets survive JSON")
+	_section("zone sets survive JSON")
 
 	var set := _corridor()
 	set.meta["tier"] = 4
@@ -387,10 +415,11 @@ func _test_zone_set_round_trip() -> void:
 
 	var newer := DotTimerZoneSet.from_dictionary({"format": 999, "zones": []})
 	_check(not newer.ok, "a file from a newer format is refused")
+	_done()
 
 
 func _test_zone_index() -> void:
-	print("the zone index")
+	_section("the zone index")
 
 	var set := _corridor()
 	var index := DotTimerZoneIndex.of(set)
@@ -429,12 +458,13 @@ func _test_zone_index() -> void:
 		int(wide_index.describe()["everywhere"]) == 1,
 		"without being written into every cell"
 	)
+	_done()
 
 
 # --- Running ---------------------------------------------------------------
 
 func _test_basic_run() -> void:
-	print("a run from start to finish")
+	_section("a run from start to finish")
 
 	var timer := _walk(_corridor(), 128, 10.0)
 
@@ -448,10 +478,11 @@ func _test_basic_run() -> void:
 	# 92 metres at 10 m/s. The zones are placed so this is exact arithmetic and not a
 	# measurement: leaving x=4 and reaching x=96.
 	_check_near(timer.run.time(), 9.2, 0.005, "and the time is the distance over the speed")
+	_done()
 
 
 func _test_start_on_leaving() -> void:
-	print("the run begins on leaving the start zone")
+	_section("the run begins on leaving the start zone")
 
 	var set := _corridor()
 	var timer := DotTimer.new()
@@ -521,10 +552,11 @@ func _test_start_on_leaving() -> void:
 		permissive.tick(air_sample2)
 
 	_check(permissive.runs_started == 1, "and one that allows them does")
+	_done()
 
 
 func _test_tickrate_agreement() -> void:
-	print("two tickrates, one time")
+	_section("two tickrates, one time")
 
 	# The claim the whole design rests on. The same run — same speed, same distance —
 	# timed at 64 Hz, 100 Hz and 128 Hz must produce the same number, or a shared
@@ -565,10 +597,11 @@ func _test_tickrate_agreement() -> void:
 		"while counting whole ticks would not",
 		"%.1f ms apart" % (absf(whole_ticks_64 - whole_ticks_128) * 1000.0)
 	)
+	_done()
 
 
 func _test_exact_boundary_landing() -> void:
-	print("landing exactly on a zone boundary")
+	_section("landing exactly on a zone boundary")
 
 	# The case a synthetic course hits every time and a real one hits whenever the
 	# numbers are round: a speed whose per-tick step divides the distance to the
@@ -598,10 +631,11 @@ func _test_exact_boundary_landing() -> void:
 		"and two tickrates that both land on the line still agree",
 		"%.6f vs %.6f" % [timer.run.time(), faster.run.time()]
 	)
+	_done()
 
 
 func _test_stages_and_splits() -> void:
-	print("stages and splits")
+	_section("stages and splits")
 
 	var timer := _walk(_corridor(), 128, 10.0)
 	var run := timer.run
@@ -625,10 +659,11 @@ func _test_stages_and_splits() -> void:
 	_check_near(
 		float(reached.splits[1]), 100.0, 0.001, "and the original split stands"
 	)
+	_done()
 
 
 func _test_stage_navigation() -> void:
-	print("stage navigation")
+	_section("stage navigation")
 
 	# The navigation half of a staged map: the timer community's staged maps, and
 	# Shavit's `sm_stages` / `sm_stagerestart`. dot-timer has carried stage zones, splits and
@@ -742,6 +777,7 @@ func _test_stage_navigation() -> void:
 	)
 
 	manager.queue_free()
+	_done()
 
 
 ## Ticks a player far enough into the corridor to be mid-run, without finishing.
@@ -759,7 +795,7 @@ func _walk_timer_into_run(manager: DotTimerManager, id: StringName) -> void:
 
 
 func _test_hud_overlay() -> void:
-	print("the timer HUD lays itself out")
+	_section("the timer HUD lays itself out")
 
 	# An interface is the one part of this family whose bugs are invisible to
 	# assertions — every property is correct and nothing fails. What CAN be asserted
@@ -854,10 +890,11 @@ func _test_hud_overlay() -> void:
 	)
 
 	hud.queue_free()
+	_done()
 
 
 func _test_other_track_ignored() -> void:
-	print("a bonus finish does not end a main run")
+	_section("a bonus finish does not end a main run")
 
 	var set := _corridor()
 
@@ -881,10 +918,11 @@ func _test_other_track_ignored() -> void:
 		timer.run.time(), 9.2, 0.005,
 		"and at the main finish line, not the bonus one"
 	)
+	_done()
 
 
 func _test_stop_and_death() -> void:
-	print("stopping a run")
+	_section("stopping a run")
 
 	var set := _corridor()
 	var stop := DotTimerZone.make(DotTimerZone.Kind.STOP)
@@ -923,10 +961,11 @@ func _test_stop_and_death() -> void:
 		"with the reason reported as a death",
 		str(reasons)
 	)
+	_done()
 
 
 func _test_style_change_abandons() -> void:
-	print("changing style mid-run")
+	_section("changing style mid-run")
 
 	var timer := DotTimer.new()
 	timer.authoritative = true
@@ -957,10 +996,11 @@ func _test_style_change_abandons() -> void:
 	_check(
 		timer.track == DotTimerTrack.of_bonus(1), "switching track works"
 	)
+	_done()
 
 
 func _test_minimum_time() -> void:
-	print("the minimum-time floor")
+	_section("the minimum-time floor")
 
 	# A start and a finish drawn overlapping, which is the classic way to
 	# manufacture an unbeatable world record.
@@ -1001,10 +1041,11 @@ func _test_minimum_time() -> void:
 		timer.can_record(timer.run).ok,
 		"while a bonus with a lower floor is accepted"
 	)
+	_done()
 
 
 func _test_checkpoints() -> void:
-	print("practice checkpoints")
+	_section("practice checkpoints")
 
 	var style := DotTimerStyle.new()
 	style.minimum_time = 0.0
@@ -1059,10 +1100,11 @@ func _test_checkpoints() -> void:
 		strict.runs_finished == 0,
 		"a style that forbids them abandons the run instead"
 	)
+	_done()
 
 
 func _test_effect_zones() -> void:
-	print("effect zones")
+	_section("effect zones")
 
 	var set := _corridor()
 
@@ -1109,6 +1151,7 @@ func _test_effect_zones() -> void:
 		timer.active_effects().is_empty(),
 		"and nothing is in force at the end of the corridor"
 	)
+	_done()
 
 
 ## RESPAWN, SLAY and TELEPORT reach the host, once, on the right track.
@@ -1119,7 +1162,7 @@ func _test_effect_zones() -> void:
 ## off fell for ever. Nothing errored. This test would have caught it on the day, and
 ## every check in it fails without the fix.
 func _test_entry_zones_reach_the_host() -> void:
-	print("zones that ask the host to act")
+	_section("zones that ask the host to act")
 
 	var set := _corridor()
 
@@ -1207,12 +1250,13 @@ func _test_entry_zones_reach_the_host() -> void:
 		timer.tick(sample)
 
 	_check(seen.is_empty(), "nothing is requested for a dead player")
+	_done()
 
 
 # --- Records ---------------------------------------------------------------
 
 func _test_store() -> void:
-	print("the records store")
+	_section("the records store")
 
 	var store := DotTimerStoreMemory.new()
 
@@ -1294,10 +1338,11 @@ func _test_store() -> void:
 		int(store.count_on(&"m", 0, &"sideways").value) == 1,
 		"and appears on its own"
 	)
+	_done()
 
 
 func _test_store_filenames() -> void:
-	print("records files cannot collide")
+	_section("records files cannot collide")
 
 	var store := DotTimerStoreFile.at("user://test_records")
 
@@ -1344,6 +1389,7 @@ func _test_store_filenames() -> void:
 		tracks.size() == DotTimerTrack.COUNT,
 		"and every track has its own file"
 	)
+	_done()
 
 
 func _record(player: StringName, time: float) -> DotTimerRecord:
@@ -1358,7 +1404,7 @@ func _record(player: StringName, time: float) -> DotTimerRecord:
 
 
 func _test_manager() -> void:
-	print("the manager")
+	_section("the manager")
 
 	var manager := DotTimerManager.new()
 	manager.authoritative = true
@@ -1435,11 +1481,12 @@ func _test_manager() -> void:
 	_check(manager.player_count() == 0, "a player can be removed")
 
 	manager.queue_free()
+	_done()
 
 
 func _test_replay_files() -> void:
 	print("")
-	print("a kept replay reaches the disk")
+	_section("a kept replay reaches the disk")
 
 	# [b]The half that had been missing.[/b] The recorder ran, the winner sat in
 	# `last_replay`, and `replays_directory` was read by nothing — so a records server
@@ -1536,6 +1583,7 @@ func _test_replay_files() -> void:
 		"%d file(s)" % written)
 
 	manager.queue_free()
+	_done()
 
 
 func _walk_manager(
@@ -1552,7 +1600,7 @@ func _walk_manager(
 
 
 func _test_tick_rate_configuration() -> void:
-	print("the tick rate is configuration, not a constant")
+	_section("the tick rate is configuration, not a constant")
 
 	var config := DotTimerConfig.new()
 
@@ -1667,10 +1715,11 @@ func _test_tick_rate_configuration() -> void:
 	_check_near(record.time, 10.0, 0.001, "with the time that rate implies")
 
 	manager.queue_free()
+	_done()
 
 
 func _test_checkpoints_practice() -> void:
-	print("practice checkpoints")
+	_section("practice checkpoints")
 
 	var manager := DotTimerManager.new()
 	manager.authoritative = true
@@ -1812,12 +1861,13 @@ func _test_checkpoints_practice() -> void:
 	_check_near(back.peek().pitch, -10.0, 0.0001, "and its view")
 
 	manager.queue_free()
+	_done()
 
 
 # --- Replays ---------------------------------------------------------------
 
 func _test_replay_round_trip() -> void:
-	print("replays")
+	_section("replays")
 
 	var replay := DotTimerReplay.new()
 	replay.map_id = &"test_corridor"
@@ -1898,10 +1948,11 @@ func _test_replay_round_trip() -> void:
 		DotTimerReplay.from_bytes(lying.slice(0, 40)).ok == false,
 		"and a truncated file is refused rather than half-read"
 	)
+	_done()
 
 
 func _test_replay_playback() -> void:
-	print("replay playback")
+	_section("replay playback")
 
 	var replay := DotTimerReplay.new()
 	replay.tick_rate = 100
@@ -1957,12 +2008,13 @@ func _test_replay_playback() -> void:
 	player.speed = 1.0
 	player.advance(0.5)
 	_check(player.time < 1.0, "and loops at the end")
+	_done()
 
 
 # --- Rules and points ------------------------------------------------------
 
 func _test_rules() -> void:
-	print("velocity rules")
+	_section("velocity rules")
 
 	var fast := Vector3(30.0, -10.0, 40.0)
 	var clamped := DotTimerRules.clamp_prespeed(fast, 25.0)
@@ -2010,10 +2062,11 @@ func _test_rules() -> void:
 		not DotTimerRules.may_start(true, false, true),
 		"and a dead one never may"
 	)
+	_done()
 
 
 func _test_points() -> void:
-	print("ranking points")
+	_section("ranking points")
 
 	var style := DotTimerStyle.new()
 
@@ -2057,10 +2110,11 @@ func _test_points() -> void:
 		style.minimum_time_for(DotTimerTrack.of_bonus(1)), 0.5, 0.001,
 		"and a bonus has its own"
 	)
+	_done()
 
 
 func _test_painter() -> void:
-	print("drawing zones from inside the game")
+	_section("drawing zones from inside the game")
 
 	var set := DotTimerZoneSet.new()
 	set.map_id = &"drawn"
@@ -2126,10 +2180,11 @@ func _test_painter() -> void:
 		not painter.begin(DotTimerZone.Kind.START, 99).ok,
 		"an invalid track is refused"
 	)
+	_done()
 
 
 func _test_time_formatting() -> void:
-	print("time formatting")
+	_section("time formatting")
 
 	_check(DotTimerRun.format_time(0.0) == "0:00.000", "zero")
 	_check(DotTimerRun.format_time(9.2) == "0:09.200", "under a minute")
@@ -2151,10 +2206,11 @@ func _test_time_formatting() -> void:
 		DotTimerRun.format_time(9.2001) != DotTimerRun.format_time(9.2011),
 		"a millisecond is visible"
 	)
+	_done()
 
 
 func _test_replay_ceiling() -> void:
-	print("replay ceiling")
+	_section("replay ceiling")
 	var recorder := DotTimerReplayRecorder.new()
 	recorder.max_seconds = 0.5
 	recorder.begin(&"bhop_cap", DotTimerTrack.MAIN, &"normal", "Ada", 128)
@@ -2175,3 +2231,4 @@ func _test_replay_ceiling() -> void:
 	_check(player != null and player.recorder != null and player.recorder.max_seconds == 10.0,
 		"the config's ceiling reaches every recorder")
 	manager.queue_free()
+	_done()
