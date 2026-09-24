@@ -203,25 +203,158 @@ func problems() -> PackedStringArray:
 				"%s has an end and no start" % DotTimerTrack.name_of(track)
 			)
 
-		# Stages must be 1..n with no gaps. A missing stage 3 means every player's
-		# splits are numbered differently from the map's own signage.
-		var stages := of_kind(DotTimerZone.Kind.STAGE, track)
-		var numbers := {}
+		out.append_array(_stage_problems(track))
 
-		for zone in stages:
-			var n := int(zone.number)
-			if numbers.has(n):
-				out.append(
-					"%s has two stage zones numbered %d"
-					% [DotTimerTrack.name_of(track), n]
-				)
-			numbers[n] = true
+	return out
 
-		for n in range(1, stages.size() + 1):
-			if not numbers.has(n):
+
+## Stages must be 1..n with no gaps. A missing stage 3 means every player's splits are
+## numbered differently from the map's own signage.
+func _stage_problems(track: int) -> PackedStringArray:
+	var out := PackedStringArray()
+	var stages := of_kind(DotTimerZone.Kind.STAGE, track)
+	var numbers := {}
+
+	for zone in stages:
+		var n := int(zone.number)
+		if numbers.has(n):
+			out.append(
+				"%s has two stage zones numbered %d"
+				% [DotTimerTrack.name_of(track), n]
+			)
+		numbers[n] = true
+
+	for n in range(1, stages.size() + 1):
+		if not numbers.has(n):
+			out.append(
+				"%s is missing stage %d" % [DotTimerTrack.name_of(track), n]
+			)
+
+	return out
+
+
+# --- Routes ----------------------------------------------------------------
+
+## The [member meta] key a map declares its pitless routes under: a list of tracks.
+##
+## [b]Data, not an argument, because the zone file is what ships.[/b] A route a player
+## cannot fall off — a circuit on a walled floor, a 2D course with ground under all of
+## it — is a real thing, and the only place that knows is the map. Declared in the set,
+## it travels with the file to every server that loads it and is visible to the next
+## person who edits it, where a flag passed by one caller would be a mute button that
+## caller alone holds.
+const PITLESS_TRACKS_KEY := "pitless_tracks"
+
+
+## Tracks that are routes: any track with a START, an END or a STAGE on it, ascending.
+##
+## [b]Not "any track with a zone".[/b] A track with only a SPAWN on it — the main track
+## of a sandbox map whose courses are all bonuses — is somewhere a player stands, not a
+## route anybody runs, and asking it for a finish would fail the one map shape that
+## proves a game does not quietly require a timer. The moment a track carries a timing
+## zone it is a route, and [method route_problems] asks all of it.
+func route_tracks() -> PackedInt32Array:
+	var seen := {}
+
+	for zone in zones:
+		if zone.kind in [
+			DotTimerZone.Kind.START, DotTimerZone.Kind.END, DotTimerZone.Kind.STAGE
+		] and DotTimerTrack.is_valid(zone.track):
+			seen[zone.track] = true
+
+	var out := PackedInt32Array()
+
+	for track in range(DotTimerTrack.COUNT):
+		if seen.has(track):
+			out.append(track)
+
+	return out
+
+
+## The tracks this set declares have nothing to fall off. See [constant PITLESS_TRACKS_KEY].
+func pitless_tracks() -> PackedInt32Array:
+	var out := PackedInt32Array()
+	var listed: Variant = meta.get(PITLESS_TRACKS_KEY, [])
+
+	# JSON hands every number back as a float, so a file that round-tripped says 3.0.
+	if listed is Array or listed is PackedInt32Array:
+		for value: Variant in listed:
+			if (value is int or value is float) and not out.has(int(value)):
+				out.append(int(value))
+
+	out.sort()
+	return out
+
+
+## What each route on this map is missing. Empty means every one of them can be spawned
+## onto, begun, finished, and fallen off of without falling for ever.
+##
+## [b]Per track, which is what [method problems] is not.[/b] That check is per zone and
+## per pair: it reports a start without an end, and it cannot see a bonus with a start,
+## an end and nothing else. Every zone carries a track and the timer acts only on its
+## own, so a RESPAWN on the main route catches nobody on bonus 1 — a set complete for
+## track 0 and partial for track 1 passes [method problems] while being a route whose
+## players fall out of the world, and this family shipped that on five routes before
+## this existed. Each route needs:
+##
+## - a START and an END, or it cannot be run;
+## - a SPAWN, or [code]spawn_for[/code] falls back to the MAIN track's and the bonus
+##   silently starts at the map's start;
+## - a RESPAWN, because [b]there is no track-agnostic one[/b]: [method DotTimer._request_effects]
+##   drops every zone off the run's track before it asks the host for anything, and
+##   nothing in this addon or either game catches a player below the world. A route a
+##   player truly cannot fall off says so under [constant PITLESS_TRACKS_KEY]; a
+##   declaration naming a track that has a pit anyway, or that is not a route, is
+##   reported too, so the exemption cannot outlive its reason;
+## - its stages numbered 1..n, the same rule [method problems] applies.
+##
+## [b]Separate from [method problems], deliberately.[/b] That one is "the set is
+## unusable" and refuses a painter's save; a half-drawn bonus with a start and an end
+## but no spawn yet is a thing an admin saves on the way to finishing it. This is "a
+## route on this map is not finished", which a map's own suite asserts is empty and
+## [DotTimerManager] warns about on load.
+func route_problems() -> PackedStringArray:
+	var out := PackedStringArray()
+	var routes := route_tracks()
+	var pitless := pitless_tracks()
+
+	for track in routes:
+		var name := DotTimerTrack.name_of(track)
+
+		for kind in [
+			DotTimerZone.Kind.START, DotTimerZone.Kind.END, DotTimerZone.Kind.SPAWN
+		]:
+			if first_of_kind(kind, track) == null:
 				out.append(
-					"%s is missing stage %d" % [DotTimerTrack.name_of(track), n]
+					"%s is a route with no %s zone"
+					% [name, DotTimerZone.kind_name(kind).to_lower()]
 				)
+
+		var has_pit := first_of_kind(DotTimerZone.Kind.RESPAWN, track) != null
+
+		if not has_pit and not pitless.has(track):
+			out.append(
+				"%s has no respawn zone, so a player who falls off it falls for ever "
+				% name
+				+ "(the other tracks' pits do not catch them; list it under meta.%s "
+				% PITLESS_TRACKS_KEY
+				+ "if it truly cannot be fallen off)"
+			)
+
+		if has_pit and pitless.has(track):
+			out.append(
+				"%s is declared pitless and has a respawn zone; one of them is stale"
+				% name
+			)
+
+		out.append_array(_stage_problems(track))
+
+	for track in pitless:
+		if not routes.has(track):
+			out.append(
+				"%s is declared pitless and is not a route on this map"
+				% DotTimerTrack.name_of(track)
+			)
 
 	return out
 
@@ -436,6 +569,9 @@ func describe_lines() -> PackedStringArray:
 
 	for problem in problems():
 		out.append("PROBLEM      %s" % problem)
+
+	for problem in route_problems():
+		out.append("INCOMPLETE   %s" % problem)
 
 	return out
 

@@ -356,6 +356,13 @@ func set_zones(set: DotTimerZoneSet) -> DotResult:
 				"map": String(set.map_id), "problem": problem
 			})
 
+		# A route missing its spawn or its pit loads and runs; the first anybody hears
+		# of it otherwise is a player on a bonus falling out of the world.
+		for problem in set.route_problems():
+			DotLog.warn(CHANNEL, "incomplete route", {
+				"map": String(set.map_id), "problem": problem
+			})
+
 		# Advisory, and checked here because a map change is the moment somebody is
 		# looking: at 128 Hz a player at 40 m/s crosses 31 cm in a tick, and a finish
 		# volume thinner than that is one the fastest players pass straight through

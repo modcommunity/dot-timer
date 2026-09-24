@@ -20,13 +20,13 @@ extends Node
 ## — the property under test belongs to [DotTimer], and against a hand-computed path a
 ## failure has exactly one possible cause.
 
-const CHECKS := 289
+const CHECKS := 299
 
 ## Sections entered against sections that ran to their last line, and against this. A
 ## runtime error inside a section aborts that function and nothing says so; a section that
 ## bailed out early after a failed guard is counted as not finished on purpose. The CHECKS
 ## total is the other half — see docs/testing.md.
-const SECTIONS := 32
+const SECTIONS := 33
 
 var _passed := 0
 var _failed := 0
@@ -47,6 +47,7 @@ func _run() -> void:
 	_test_track_names()
 	_test_zone_geometry()
 	_test_zone_set_validation()
+	_test_route_completeness()
 	_test_zone_set_round_trip()
 	_test_zone_index()
 	_test_basic_run()
@@ -368,6 +369,128 @@ func _test_zone_set_validation() -> void:
 		"a 40 cm pit plane is flagged for a player falling into it at 40 m/s"
 	)
 	_done()
+
+
+## `[track-zone-1]`: a set complete for one track and partial for another.
+##
+## [method DotTimerZoneSet.problems] is per zone and per start/end pair, so a bonus with
+## a start, an end and nothing else passes it — while every player on that bonus who
+## falls off falls for ever, because the main route's pit is filtered out by track. Five
+## suites in two games were walking this by hand, one track at a time, and the one map
+## none of them asked about had exactly that bonus.
+func _test_route_completeness() -> void:
+	_section("route completeness, per track")
+
+	var bare := _corridor()
+	_check(bare.route_tracks() == PackedInt32Array([0]),
+		"a corridor with a start, a finish and stages is one route",
+		str(bare.route_tracks()))
+	var bare_problems := bare.route_problems()
+	_check(
+		bare_problems.size() == 2
+			and "spawn" in bare_problems[0] and "respawn" in bare_problems[1],
+		"which is missing a spawn and a pit, and says both",
+		str(bare_problems))
+
+	var whole := _route_complete(_corridor(), DotTimerTrack.MAIN, 200.0)
+	_check(whole.route_problems().is_empty(), "with both, the route is complete",
+		str(whole.route_problems()))
+
+	# The hole itself: a bonus drawn with a start, an end and a spawn, beside a main
+	# route with a pit. problems() is satisfied; nobody on the bonus can be put back.
+	var bonus := DotTimerTrack.BONUS_FIRST
+	var partial := _route_complete(_corridor(), DotTimerTrack.MAIN, 200.0)
+	partial.add(DotTimerZone.make(DotTimerZone.Kind.START, bonus).set_box(
+		Vector3(0.0, 20.0, 0.0), Vector3(4.0, 24.0, 4.0)))
+	partial.add(DotTimerZone.make(DotTimerZone.Kind.END, bonus).set_box(
+		Vector3(40.0, 20.0, 0.0), Vector3(44.0, 24.0, 4.0)))
+	var bonus_spawn := DotTimerZone.make(DotTimerZone.Kind.SPAWN, bonus)
+	bonus_spawn.destination = Vector3(2.0, 21.0, 2.0)
+	partial.add(bonus_spawn)
+
+	_check(partial.problems().is_empty(),
+		"a bonus with a start, an end and a spawn passes the per-zone check",
+		str(partial.problems()))
+	_check(
+		partial.route_problems().size() == 1
+			and "Bonus 1" in partial.route_problems()[0]
+			and "respawn" in partial.route_problems()[0],
+		"and is reported here, because the main route's pit does not catch it",
+		str(partial.route_problems()))
+
+	# A track with only somewhere to stand is a sandbox, not a route.
+	var sandbox := _corridor()
+	for zone in sandbox.zones:
+		zone.track = bonus
+	_route_complete(sandbox, bonus, 200.0)
+	var lobby := DotTimerZone.make(DotTimerZone.Kind.SPAWN, DotTimerTrack.MAIN)
+	lobby.destination = Vector3(0.0, 1.0, 0.0)
+	sandbox.add(lobby)
+	_check(
+		sandbox.route_tracks() == PackedInt32Array([bonus])
+			and sandbox.route_problems().is_empty(),
+		"a main track with only a spawn on it is a sandbox and is asked nothing",
+		"%s %s" % [sandbox.route_tracks(), sandbox.route_problems()])
+
+	# Every missing piece is named, on the track it is missing from.
+	var gaps := DotTimerZoneSet.new()
+	var two := DotTimerTrack.of_bonus(2)
+	gaps.add(DotTimerZone.make(DotTimerZone.Kind.START, two).set_box(
+		Vector3.ZERO, Vector3(4.0, 4.0, 4.0)))
+	var stray := DotTimerZone.make(DotTimerZone.Kind.STAGE, two).set_box(
+		Vector3(10.0, 0.0, 0.0), Vector3(12.0, 4.0, 4.0))
+	stray.number = 2.0
+	gaps.add(stray)
+	var named := "\n".join(gaps.route_problems())
+	_check(
+		"Bonus 2 is a route with no end" in named
+			and "Bonus 2 is a route with no spawn" in named
+			and "Bonus 2 has no respawn" in named
+			and "Bonus 2 is missing stage 1" in named,
+		"a route with a start and stage 2 is missing its end, spawn, pit and stage 1",
+		named)
+
+	# A pitless route is declared in the file, and survives the trip through JSON —
+	# which hands the track number back as a float.
+	var circuit := _corridor()
+	var circuit_spawn := DotTimerZone.make(DotTimerZone.Kind.SPAWN)
+	circuit_spawn.destination = Vector3(2.0, 1.0, 0.0)
+	circuit.add(circuit_spawn)
+	circuit.meta[DotTimerZoneSet.PITLESS_TRACKS_KEY] = [DotTimerTrack.MAIN]
+	var loaded := DotTimerZoneSet.from_json(circuit.to_json())
+	var trip: DotTimerZoneSet = loaded.value if loaded.ok else null
+	_check(
+		trip != null and trip.pitless_tracks() == PackedInt32Array([0])
+			and trip.route_problems().is_empty(),
+		"a route declared pitless needs no pit, after a round trip through JSON",
+		str(trip.route_problems()) if trip != null else "did not load")
+
+	# And the declaration cannot outlive its reason, either way round.
+	var stale := _route_complete(_corridor(), DotTimerTrack.MAIN, 200.0)
+	stale.meta[DotTimerZoneSet.PITLESS_TRACKS_KEY] = [DotTimerTrack.MAIN, 5]
+	var stale_problems := "\n".join(stale.route_problems())
+	_check(
+		"Main is declared pitless and has a respawn zone" in stale_problems
+			and "Bonus 5 is declared pitless and is not a route" in stale_problems,
+		"a pitless declaration on a track with a pit, or on no route, is reported",
+		stale_problems)
+
+	var lines := "\n".join(partial.describe_lines())
+	_check("INCOMPLETE" in lines and "Bonus 1" in lines,
+		"and describe_lines says so, where an admin dumping the set will see it")
+	_done()
+
+
+## Adds a spawn and a pit on [param track] to [param set], and returns it.
+func _route_complete(
+	set: DotTimerZoneSet, track: int, below: float
+) -> DotTimerZoneSet:
+	var spawn := DotTimerZone.make(DotTimerZone.Kind.SPAWN, track)
+	spawn.destination = Vector3(2.0, 1.0, 0.0)
+	set.add(spawn)
+	set.add(DotTimerZone.make(DotTimerZone.Kind.RESPAWN, track).set_box(
+		Vector3(-below, -below, -below), Vector3(below, -10.0, below)))
+	return set
 
 
 func _test_zone_set_round_trip() -> void:

@@ -145,6 +145,8 @@ dot-timer does not (48 of one map's 53 zones were that thin). A game lowers it o
 once it knows how far its players can actually fall. A map full of height bands a
 player enters on the way up — a jumping course's splits — is the case that wants it.
 
+**`route_problems()` is the per-TRACK check, and `problems()` is not one.** Every zone carries a track and the timer acts only on its own (`_request_effects` drops the rest before the host hears of them), so a RESPAWN on the main route catches nobody on bonus 1 — and there is **no track-agnostic respawn** anywhere, in this addon or in either game. `problems()` is per zone and per start/end pair, so a bonus with a start, an end and nothing else passes it while every player who falls off it falls for ever. `route_problems()` asks every route — a track with any START, END or STAGE; a track with only a SPAWN is a sandbox and is asked nothing — for a START, an END, a SPAWN (or `spawn_for` falls back to the main one) and a RESPAWN, plus stages 1..n. A route that genuinely cannot be fallen off (a circuit on a walled floor) is declared in the file under `meta.pitless_tracks`, and a declaration naming a track that has a pit or is not a route is itself reported, so the exemption cannot outlive its reason. It is separate from `problems()` on purpose: that one refuses a painter's save, and a half-drawn bonus is something an admin saves on the way to finishing it. `DotTimerManager` warns `incomplete route` on load, and `describe_lines()` prints them as `INCOMPLETE`. Found by `[track-zone-1]`: five suites were walking this by hand one named track at a time, and the one map none of them asked about (game-g2gfast's `bhop_g2g_stages`) had exactly that bonus.
+
 **`fingerprint()` deliberately ignores comments and ids.** Moving a finish line
 invalidates every record on the map; correcting a mapper's typo does not, and a
 records system that punished tidying up is one nobody tidies up.
@@ -469,8 +471,8 @@ godot --headless --path . --import
 find . -name '*.gd' -not -path './.godot/*' | while read f; do
     godot --headless --path . --check-only --script "res://${f#./}"
 done
-godot --headless --path . res://examples/timer_selftest.tscn      # 255 checks
-godot --headless --path . res://examples/timer_2d_selftest.tscn   # 25 checks
+godot --headless --path . res://examples/timer_selftest.tscn      # 299 checks, 33 sections
+godot --headless --path . res://examples/timer_2d_selftest.tscn   # 27 checks, 4 sections
 ```
 
 Exits non-zero on failure. **Run the check-only pass first**: a script that fails to

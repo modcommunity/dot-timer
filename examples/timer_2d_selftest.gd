@@ -39,7 +39,7 @@ const START_W := 100.0
 const FINISH_X := 1300.0
 const FINISH_W := 100.0
 
-const CHECKS := 25
+const CHECKS := 27
 
 ## Sections entered against sections that ran to their last line, and against this. A
 ## runtime error inside a section aborts that function and nothing says so; a section that
@@ -179,6 +179,20 @@ func _test_zones_are_authored_in_2d() -> void:
 		"with one playable track"
 	)
 	_check(zones.stage_count(DotTimerTrack.MAIN) == 2, "and two stages")
+
+	# `[track-zone-1]`, asked of a set collected from 2D nodes. The course has a start,
+	# a finish, its stages and a spawn, and nothing to catch a body that falls off it,
+	# which a per-zone check cannot see and the per-route one names.
+	var incomplete := zones.route_problems()
+	_check(
+		incomplete.size() == 1 and "respawn" in incomplete[0],
+		"the route is missing exactly its pit, and says so",
+		str(incomplete)
+	)
+	zones.meta[DotTimerZoneSet.PITLESS_TRACKS_KEY] = [DotTimerTrack.MAIN]
+	_check(zones.route_problems().is_empty(),
+		"and is complete once the map declares it has ground under all of it",
+		str(zones.route_problems()))
 
 	# The third axis. A 2D game's sample is (x, y, 0), so every zone has to contain
 	# that plane — which a rectangle drawn in the editor does not, until it is
