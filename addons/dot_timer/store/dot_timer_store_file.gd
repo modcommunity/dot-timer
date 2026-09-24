@@ -39,7 +39,10 @@ var _loaded: Dictionary = {}
 
 
 static func at(path: String) -> DotTimerStoreFile:
-	var store := DotTimerStoreFile.new()
+	# Not this class's own name. A script that names itself in an expression, loaded after
+	# its base, cuts Godot 4.7.2's exit teardown short and leaks every script loaded before
+	# it. See docs/gdscript-hazards.md, "A script that names itself".
+	var store := new()
 	store.directory = path
 	return store
 
