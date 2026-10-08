@@ -476,7 +476,7 @@ find . -name '*.gd' -not -path './.godot/*' | while read f; do
 done
 godot --headless --path . res://examples/timer_selftest.tscn           # 309 checks, 34 sections
 godot --headless --path . res://examples/timer_2d_selftest.tscn        # 27 checks, 4 sections
-godot --headless --path . res://examples/timer_records_selftest.tscn   # 180 checks, 17 sections
+godot --headless --path . res://examples/timer_records_selftest.tscn   # 181 checks, 17 sections
 ../dot-sql/tools/test_live.sh . res://examples/timer_sql_live.tscn     # 58 per database
 ```
 

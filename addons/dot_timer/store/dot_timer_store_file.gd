@@ -622,6 +622,11 @@ func _write_extra(name: String) -> DotResult:
 ## server that cannot be regenerated, and a process killed mid-write must leave the
 ## previous version intact.
 func _write_json(path: String, data: Dictionary) -> DotResult:
+	# An empty directory makes every path relative, and a relative path resolves against
+	# the process's working directory: a stray `_maps.json` in a game's project root
+	# (game-g2gfast, 2026-10-08). "No files" is a memory store, never this one.
+	if directory.strip_edges() == "":
+		return DotResult.failure(DotError.from_engine(ERR_INVALID_PARAMETER, "DotTimerStoreFile.directory is empty"))
 	if not DirAccess.dir_exists_absolute(directory):
 		var made := DirAccess.make_dir_recursive_absolute(directory)
 		if made != OK:

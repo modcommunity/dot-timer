@@ -14,7 +14,7 @@ extends Node
 
 const Contract := preload("res://examples/timer_store_contract.gd")
 
-const CHECKS := 180
+const CHECKS := 181
 const SECTIONS := 17
 
 var _passed := 0
@@ -106,6 +106,10 @@ func _test_file_store_survives_a_restart() -> void:
 	_check("and the players, maps and history", again.player_info(&"alice").value != null and again.map_info(Contract.M).value != null and (again.recent(10, {"records_only": false}).value as Array).size() == 1)
 	_check("and a cross-board question reads every board", (again.records_of(&"alice").value as Array).size() == 1)
 	_check("a board written before sections existed keeps its filename", store.path_for(Contract.M, 0, &"normal").ends_with("surf_contract.0.normal.json"))
+
+	var nowhere := DotTimerStoreFile.at("")
+	nowhere.put_map({"map": "surf_contract", "tier": 3})
+	_check("a store with no directory refuses to write into the working directory", not nowhere.flush().ok and not FileAccess.file_exists("_maps.json"))
 	_done()
 
 
