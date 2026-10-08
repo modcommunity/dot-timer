@@ -25,7 +25,9 @@ extends RefCounted
 ## Magic, so a truncated or wrong file is refused rather than misread.
 const MAGIC := 0x44525031  # "DRP1"
 
-const FORMAT_VERSION := 1
+## 2 (2026-10-07): a teleport bit and buttons per frame, and the run's start and end frames
+## in the header (the run-up and the run-out around them). Version 1 still reads.
+const FORMAT_VERSION := 2
 
 ## Position quantisation, in metres. A millimetre is far below anything visible and
 ## keeps a 4 km map inside 22 bits.
@@ -43,6 +45,12 @@ const FLAG_KEYFRAME := 1 << 0
 const FLAG_GROUNDED := 1 << 1
 const FLAG_DUCKED := 1 << 2
 const FLAG_JUMPED := 1 << 3
+## The player was moved, not carried: a respawn, a teleport zone, an admin's goto. Playback
+## does not blend across it and nothing derives a speed across it: a 30 m teleport smeared
+## over one tick is a ghost doing 3,800 m/s, and a ghost's speed readout showed exactly that.
+const FLAG_TELEPORT := 1 << 4
+## A buttons byte follows this frame's angles (version 2). Set by the encoder, never by hand.
+const FLAG_BUTTONS := 1 << 5
 
 ## Largest delta a short frame can carry, in quantised units.
 ##
@@ -65,6 +73,13 @@ var recorded_at: int = 0
 ## One entry per tick: position, yaw, pitch, flags.
 var frames: Array[Frame] = []
 
+## The frame the timer started on, and the frame it finished on. The frames before
+## [member start_frame] are the run-up (the player in the start zone, at speed) and after
+## [member end_frame] the run-out: a ghost that starts at the run-up's speed rather than at
+## zero, and does not stop dead on the line. 0 and the last frame for a version-1 replay.
+var start_frame: int = 0
+var end_frame: int = -1
+
 
 ## One tick of a recorded run.
 class Frame extends RefCounted:
@@ -72,6 +87,8 @@ class Frame extends RefCounted:
 	var yaw: float = 0.0
 	var pitch: float = 0.0
 	var flags: int = 0
+	## The buttons held, in the host's own vocabulary, low eight bits.
+	var buttons: int = 0
 
 	func duplicate_frame() -> Frame:
 		var f := Frame.new()
@@ -79,6 +96,7 @@ class Frame extends RefCounted:
 		f.yaw = yaw
 		f.pitch = pitch
 		f.flags = flags
+		f.buttons = buttons
 		return f
 
 
@@ -87,14 +105,30 @@ func duration() -> float:
 
 
 func append(
-	position: Vector3, yaw: float, pitch: float, flags: int = 0
+	position: Vector3, yaw: float, pitch: float, flags: int = 0, buttons: int = 0
 ) -> void:
 	var frame := Frame.new()
 	frame.position = position
 	frame.yaw = yaw
 	frame.pitch = pitch
-	frame.flags = flags
+	frame.flags = flags & ~FLAG_BUTTONS
+	frame.buttons = buttons & 0xFF
 	frames.append(frame)
+
+
+## The last frame of the run itself (the finish), whatever the run-out after it.
+func run_end_frame() -> int:
+	return end_frame if end_frame >= 0 else frames.size() - 1
+
+
+## Seconds into the replay the timer started, and finished. A ghost raced against a live
+## run is offset by [method run_start_seconds].
+func run_start_seconds() -> float:
+	return float(start_frame) / float(maxi(tick_rate, 1))
+
+
+func run_end_seconds() -> float:
+	return float(run_end_frame()) / float(maxi(tick_rate, 1))
 
 
 # --- Encoding --------------------------------------------------------------
@@ -125,6 +159,8 @@ func to_bytes() -> PackedByteArray:
 	_put_string(out, String(map_id))
 	_put_string(out, String(style_id))
 	_put_string(out, player_name)
+	out.put_u32(clampi(start_frame, 0, 0x7FFFFFFF))
+	out.put_u32(clampi(run_end_frame(), 0, 0x7FFFFFFF))
 	out.put_u32(frames.size())
 
 	var previous_x := 0
@@ -137,20 +173,24 @@ func to_bytes() -> PackedByteArray:
 		var y := _quantise(frame.position.y, POSITION_SCALE)
 		var z := _quantise(frame.position.z, POSITION_SCALE)
 
-		var keyframe := not have_previous
+		# A teleport is always written whole: it is exactly the frame a delta from the one
+		# before it says nothing true about.
+		var keyframe := not have_previous or (frame.flags & FLAG_TELEPORT) != 0
 
 		if have_previous:
 			# A jump larger than the delta field is a teleport, and there is no
 			# encoding of it that is not a keyframe. Detected rather than assumed
 			# from the flags, because a teleport a game performs itself does not
 			# necessarily set one.
-			keyframe = (
+			keyframe = keyframe or (
 				absi(x - previous_x) > MAX_DELTA
 				or absi(y - previous_y) > MAX_DELTA
 				or absi(z - previous_z) > MAX_DELTA
 			)
 
 		var flags := frame.flags | (FLAG_KEYFRAME if keyframe else 0)
+		if frame.buttons != 0:
+			flags |= FLAG_BUTTONS
 
 		out.put_u8(flags & 0xFF)
 
@@ -165,6 +205,8 @@ func to_bytes() -> PackedByteArray:
 
 		out.put_16(_quantise(wrapf(frame.yaw, -180.0, 180.0), ANGLE_SCALE))
 		out.put_16(_quantise(clampf(frame.pitch, -90.0, 90.0), ANGLE_SCALE))
+		if frame.buttons != 0:
+			out.put_u8(frame.buttons & 0xFF)
 
 		previous_x = x
 		previous_y = y
@@ -262,6 +304,12 @@ static func from_bytes(bytes: PackedByteArray) -> DotResult:
 	replay.style_id = StringName(style_text)
 	replay.player_name = name_text
 
+	if version >= 2:
+		if reader.get_available_bytes() < 8:
+			return DotResult.fail(DotError.CODE_PARSE, "The replay header is truncated.")
+		replay.start_frame = reader.get_u32()
+		replay.end_frame = reader.get_u32()
+
 	if reader.get_available_bytes() < 4:
 		return DotResult.fail(
 			DotError.CODE_PARSE, "The replay ends before its frame count."
@@ -305,6 +353,11 @@ static func from_bytes(bytes: PackedByteArray) -> DotResult:
 
 		var yaw := _dequantise(reader.get_16(), ANGLE_SCALE)
 		var pitch := _dequantise(reader.get_16(), ANGLE_SCALE)
+		var buttons := 0
+		if flags & FLAG_BUTTONS:
+			if reader.get_available_bytes() < 1:
+				return DotResult.fail(DotError.CODE_PARSE, "The replay ends in the middle of a frame.")
+			buttons = reader.get_u8()
 
 		replay.append(
 			Vector3(
@@ -314,8 +367,13 @@ static func from_bytes(bytes: PackedByteArray) -> DotResult:
 			),
 			yaw,
 			pitch,
-			flags & ~FLAG_KEYFRAME
+			flags & ~FLAG_KEYFRAME,
+			buttons
 		)
+
+	if replay.end_frame >= replay.frames.size():
+		replay.end_frame = replay.frames.size() - 1
+	replay.start_frame = clampi(replay.start_frame, 0, maxi(replay.frames.size() - 1, 0))
 
 	return DotResult.success(replay)
 

@@ -113,6 +113,11 @@ func sample_at(seconds: float) -> DotTimerReplay.Frame:
 	var b := replay.frames[index + 1]
 	var t := exact - float(index)
 
+	# Never across a teleport: the player was put there, not carried, and a blend draws them
+	# flying through the map between the two places for one tick.
+	if b.flags & DotTimerReplay.FLAG_TELEPORT:
+		t = 0.0
+
 	var out := DotTimerReplay.Frame.new()
 	out.position = a.position.lerp(b.position, t)
 
@@ -127,6 +132,20 @@ func sample_at(seconds: float) -> DotTimerReplay.Frame:
 	out.flags = a.flags
 
 	return out
+
+
+## How fast the replayed player was going at [param seconds], in m/s, from the frames on
+## either side, and never across a teleport (0 on the tick of one): a ghost's speed readout
+## derived across a 30 m teleport read thousands of metres a second.
+func speed_at(seconds: float) -> float:
+	if replay == null or replay.frames.size() < 2:
+		return 0.0
+	var index := clampi(int(floor(seconds * float(replay.tick_rate))), 0, replay.frames.size() - 2)
+	var a := replay.frames[index]
+	var b := replay.frames[index + 1]
+	if b.flags & DotTimerReplay.FLAG_TELEPORT:
+		return 0.0
+	return a.position.distance_to(b.position) * float(replay.tick_rate)
 
 
 ## The frame index at the current time. For a scrub bar.

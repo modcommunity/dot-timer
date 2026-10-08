@@ -75,6 +75,14 @@ extends DotConfig
 ## Longest run that will be recorded, in seconds.
 @export_range(10.0, 7200.0, 10.0) var max_replay_seconds: float = 1200.0
 
+## Seconds of a replay kept from before the timer started (the run-up in the start zone), so a
+## ghost or a bot following it starts at the player's speed. 0 for none.
+@export_range(0.0, 10.0, 0.5) var replay_pre_roll_seconds: float = 2.0
+
+## Seconds kept after the finish, so a ghost does not stop dead on the line. 0 for none. The
+## replay is written to disk when the run-out ends.
+@export_range(0.0, 10.0, 0.5) var replay_post_roll_seconds: float = 1.0
+
 @export_group("Rules")
 
 ## Speed a fast player is assumed to reach, in m/s, for the thin-zone warning.

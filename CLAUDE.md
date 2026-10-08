@@ -587,3 +587,12 @@ sixth was found by game-playground, from the other side:
 - **Anti-cheat beyond the structural refusals.** The minimum time, the checkpoint flag
   and the zone fingerprint make specific exploits unrepresentable. Detecting a
   scripted strafe is a different discipline and belongs where the input is.
+
+## Replays: teleports, the declared flags, a run-up and a run-out (2026-10-07, `[dot-timer-replays-1]`)
+
+**Format 2**, version 1 still read. Three things were missing:
+- **A teleport flag** (`FLAG_TELEPORT`). Set by the game through `DotTimerManager.tick_player(..., replay_flags)`, or by the recorder itself for a move further than `teleport_distance` (4 m) in one tick. A teleport frame is always written whole, `DotTimerReplayPlayer.sample_at` never blends across it, and `speed_at` never derives a speed across one. Before, a replay smeared a 30 m teleport over one tick: a ghost flying through the map, and a readout of thousands of metres a second.
+- **The declared, never-written flags.** `FLAG_DUCKED` and `FLAG_JUMPED` come through `replay_flags`. The held buttons are kept per frame, as a byte that follows the angles only when non-zero (`FLAG_BUTTONS`, set by the encoder).
+- **The run-up and the run-out.** The recorder is fed every tick (`feed`), not only during a run. It keeps a rolling `pre_roll_seconds` (2) before the start and `post_roll_seconds` (1) after the finish, and the header carries `start_frame` and `end_frame` (`run_start_seconds` / `run_end_seconds`), so a ghost or a bot starts at the player's run-up speed and does not stop dead on the line. The replay is **written to disk when its run-out ends** (`pending_replay_record`), not at the finish. A new run, a player leaving or a map change ends a run-out early and writes it as it stands (`_flush_trail`). `DotTimerConfig.replay_pre_roll_seconds` and `replay_post_roll_seconds` set them; 0 turns either off.
+
+`timer_selftest`'s *replay flags* (6): the flags and buttons through the bytes, the teleport written whole, no blend and no speed across it, the recorder detecting one, the manager recording a caller's flags and buttons, a version-1 file read. *a kept replay reaches the disk* (+3): the replay waits for its run-out, then has both the run-up and the run-out, and the run between them is the run's own time. Armed by blending across a teleport: the ghost was drawn at 15.05 m mid-teleport. game-playground and game-g2gfast pass `player.replay_flags()` (ducked past half a crouch, jumped within a tick and a half, teleported by the player's own `teleport`).

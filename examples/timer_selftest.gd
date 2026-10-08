@@ -20,13 +20,13 @@ extends Node
 ## — the property under test belongs to [DotTimer], and against a hand-computed path a
 ## failure has exactly one possible cause.
 
-const CHECKS := 299
+const CHECKS := 309
 
 ## Sections entered against sections that ran to their last line, and against this. A
 ## runtime error inside a section aborts that function and nothing says so; a section that
 ## bailed out early after a failed guard is counted as not finished on purpose. The CHECKS
 ## total is the other half — see docs/testing.md.
-const SECTIONS := 33
+const SECTIONS := 34
 
 var _passed := 0
 var _failed := 0
@@ -73,6 +73,7 @@ func _run() -> void:
 	_test_replay_round_trip()
 	_test_replay_ceiling()
 	_test_replay_playback()
+	_test_replay_flags()
 	_test_rules()
 	_test_points()
 	_test_painter()
@@ -1644,6 +1645,13 @@ func _test_replay_files() -> void:
 
 	_check(accepted.size() == 1, "a run is filed")
 
+	# The replay keeps a second of run-out after the finish, and is written when that ends:
+	# not at the finish, which would leave the file without it.
+	if accepted.size() == 1:
+		_check(not FileAccess.file_exists(manager.replay_path(accepted[0])) and manager.player(&"p1").recorder.is_trailing(),
+			"the replay waits for its run-out before it is written")
+	_idle_manager(manager, &"p1", 140)
+
 	if accepted.size() == 1:
 		var path := manager.replay_path(accepted[0])
 		_check(FileAccess.file_exists(path), "and its replay is on disk", path)
@@ -1663,6 +1671,11 @@ func _test_replay_files() -> void:
 				replay.map_id == accepted[0].map_id,
 				"and the map it was set on"
 			)
+			_check(replay.start_frame > 0 and replay.run_end_frame() < replay.frames.size() - 100,
+				"with the run-up before the start and the run-out after the finish",
+				"start %d, end %d, %d frames" % [replay.start_frame, replay.run_end_frame(), replay.frames.size()])
+			_check(absf((replay.run_end_seconds() - replay.run_start_seconds()) - replay.time) < 0.05,
+				"and the run between them is the run's own time", "%.3f against %.3f" % [replay.run_end_seconds() - replay.run_start_seconds(), replay.time])
 
 	# A slower second run is not kept, so there is nothing to write: the file must
 	# still be the record's replay rather than the run that lost to it.
@@ -1671,6 +1684,7 @@ func _test_replay_files() -> void:
 
 	# The walk starts behind the start zone, so running it again is a second run.
 	_walk_manager(manager, &"p1", 6.0)
+	_idle_manager(manager, &"p1", 140)
 
 	if accepted.size() >= 1:
 		_check(
@@ -1720,6 +1734,12 @@ func _walk_manager(
 		manager.tick_player(
 			id, Vector3(x, 0.0, 0.0), Vector3(speed, 0.0, 0.0), true, true
 		)
+
+
+## Stands [param id] still past the end for [param ticks] ticks: a replay's run-out.
+func _idle_manager(manager: DotTimerManager, id: StringName, ticks: int) -> void:
+	for _i in range(ticks):
+		manager.tick_player(id, Vector3(104.0, 0.0, 0.0), Vector3.ZERO, true, true)
 
 
 func _test_tick_rate_configuration() -> void:
@@ -2329,6 +2349,96 @@ func _test_time_formatting() -> void:
 		DotTimerRun.format_time(9.2001) != DotTimerRun.format_time(9.2011),
 		"a millisecond is visible"
 	)
+	_done()
+
+
+## Teleports, the declared flags and the buttons (format 2): recorded, kept through bytes,
+## and honoured by playback.
+func _test_replay_flags() -> void:
+	_section("replay flags: teleport, ducked, jumped, buttons")
+
+	var r := DotTimerReplay.new()
+	r.tick_rate = 100
+	r.append(Vector3(0, 0, 0), 0.0, 0.0, DotTimerReplay.FLAG_DUCKED, 5)
+	r.append(Vector3(0.1, 0, 0), 0.0, 0.0, DotTimerReplay.FLAG_JUMPED, 0)
+	r.append(Vector3(30.0, 0, 0), 0.0, 0.0, DotTimerReplay.FLAG_TELEPORT, 0)
+	r.append(Vector3(30.1, 0, 0), 0.0, 0.0, 0, 0)
+	var back := DotTimerReplay.from_bytes(r.to_bytes())
+	var got: DotTimerReplay = back.value if back.ok else null
+	_check(got != null and got.frames[0].flags & DotTimerReplay.FLAG_DUCKED and got.frames[0].buttons == 5
+		and got.frames[1].flags & DotTimerReplay.FLAG_JUMPED and got.frames[2].flags & DotTimerReplay.FLAG_TELEPORT,
+		"ducked, jumped, a teleport and the buttons survive the bytes")
+	_check(got != null and got.frames[2].position.is_equal_approx(Vector3(30.0, 0, 0)) and got.frames[3].buttons == 0,
+		"and the teleport lands where it was, written whole")
+
+	var player := DotTimerReplayPlayer.new()
+	var _loaded := player.load_replay(r)
+	var mid := player.sample_at(1.5 / 100.0)
+	_check(mid != null and mid.position.is_equal_approx(Vector3(0.1, 0, 0)), "playback does not blend across a teleport",
+		str(mid.position) if mid != null else "null")
+	_check(is_zero_approx(player.speed_at(1.0 / 100.0)) and is_equal_approx(player.speed_at(0.0), 10.0),
+		"and no speed is derived across one, where it is across a step", "%.2f / %.2f" % [player.speed_at(1.0 / 100.0), player.speed_at(0.0)])
+
+	var recorder := DotTimerReplayRecorder.new()
+	recorder.pre_roll_seconds = 0.0
+	recorder.begin(&"m", 0, &"normal", "p", 100)
+	recorder.feed(Vector3(0, 0, 0), 0.0, 0.0)
+	recorder.feed(Vector3(0.1, 0, 0), 0.0, 0.0)
+	recorder.feed(Vector3(20.0, 0, 0), 0.0, 0.0)
+	var made := recorder.finish(0.03)
+	_check(made != null and made.frames[2].flags & DotTimerReplay.FLAG_TELEPORT and not (made.frames[1].flags & DotTimerReplay.FLAG_TELEPORT),
+		"the recorder marks a move too far for a tick as a teleport by itself")
+
+	var manager := DotTimerManager.new()
+	manager.authoritative = true
+	manager.tick_rate = 128
+	manager.store = DotTimerStoreMemory.new()
+	manager.record_replays = true
+	add_child(manager)
+	manager.set_zones(_corridor())
+	manager.add_player(&"f1", "Flags")
+	var step := 10.0 / 128.0
+	var x := -2.0
+	var i := 0
+	while x <= 104.0:
+		x += step
+		i += 1
+		var flags := DotTimerReplay.FLAG_DUCKED if i % 2 == 0 else 0
+		manager.tick_player(&"f1", Vector3(x, 0.0, 0.0), Vector3(10.0, 0, 0), true, true, 0.0, 0.0, 3, flags)
+	var last: DotTimerReplay = manager.player(&"f1").last_replay
+	var ducked := 0
+	var pressed := 0
+	if last != null:
+		for frame in last.frames:
+			ducked += 1 if frame.flags & DotTimerReplay.FLAG_DUCKED else 0
+			pressed += 1 if frame.buttons == 3 else 0
+	_check(last != null and ducked > 0 and pressed == last.frames.size(), "the manager records the caller's flags and buttons",
+		"%d ducked, %d with buttons of %d" % [ducked, pressed, last.frames.size() if last != null else 0])
+
+	# A version-1 file (no start/end, no buttons byte) still reads.
+	var v1 := StreamPeerBuffer.new()
+	v1.big_endian = false
+	v1.put_u32(DotTimerReplay.MAGIC)
+	v1.put_u8(1)
+	v1.put_u8(0)
+	v1.put_u16(128)
+	v1.put_float(1.0)
+	v1.put_u32(0)
+	for text in ["m", "normal", "p"]:
+		v1.put_u8(text.length())
+		v1.put_data(text.to_utf8_buffer())
+	v1.put_u32(1)
+	v1.put_u8(DotTimerReplay.FLAG_KEYFRAME)
+	v1.put_32(1000)
+	v1.put_32(0)
+	v1.put_32(0)
+	v1.put_16(0)
+	v1.put_16(0)
+	var old := DotTimerReplay.from_bytes(v1.data_array)
+	_check(old.ok and (old.value as DotTimerReplay).frames.size() == 1 and (old.value as DotTimerReplay).start_frame == 0,
+		"and a version-1 replay still reads", str(old.error) if not old.ok else "")
+
+	manager.queue_free()
 	_done()
 
 

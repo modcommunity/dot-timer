@@ -188,6 +188,8 @@ class Player extends RefCounted:
 
 	## The last replay produced, handed to whatever stores replays.
 	var last_replay: DotTimerReplay = null
+	## A kept record whose replay is still taking its run-out: written when it is done.
+	var pending_replay_record: DotTimerRecord = null
 
 	## Practice checkpoints. Per player, because they are a player's own working set.
 	var checkpoints: DotTimerCheckpoints = null
@@ -344,6 +346,8 @@ func set_zones(set: DotTimerZoneSet) -> DotResult:
 
 	for id in _players:
 		var player: Player = _players[id]
+		# A new map: a run-out still going belongs to the last one. Written as it stands.
+		_flush_trail(player)
 		var bound := player.timer.bind(set, tick_rate)
 		if not bound.ok:
 			return bound
@@ -454,8 +458,11 @@ func add_player(id: StringName, display_name: String) -> DotResult:
 	player.timer.authoritative = authoritative
 	player.sample = DotTimerSample.new()
 	player.recorder = DotTimerReplayRecorder.new()
+	player.recorder.tick_rate = tick_rate
 	if config != null:
 		player.recorder.max_seconds = config.max_replay_seconds
+		player.recorder.pre_roll_seconds = config.replay_pre_roll_seconds
+		player.recorder.post_roll_seconds = config.replay_post_roll_seconds
 
 	var bound := player.timer.bind(zones, tick_rate)
 
@@ -505,6 +512,7 @@ func remove_player(id: StringName) -> bool:
 	# one. A player who disconnects mid-run leaves a run that never ended otherwise,
 	# and whatever was tracking it leaks.
 	player.timer.stop(DotTimer.REASON_RESET)
+	_flush_trail(player)
 	player.recorder.discard()
 
 	_players.erase(id)
@@ -546,7 +554,8 @@ func tick_player(
 	alive: bool = true,
 	yaw: float = 0.0,
 	pitch: float = 0.0,
-	buttons: int = 0
+	buttons: int = 0,
+	replay_flags: int = 0
 ) -> void:
 	var found := player(id)
 
@@ -561,9 +570,17 @@ func tick_player(
 
 	found.timer.tick(found.sample)
 
-	if record_replays and found.recorder.recording:
-		var flags := DotTimerReplay.FLAG_GROUNDED if grounded else 0
-		found.recorder.capture(position, yaw, pitch, flags)
+	# Every tick, not only during a run: the recorder keeps the run-up before a start and the
+	# run-out after a finish. [param replay_flags] is the caller's FLAG_DUCKED, FLAG_JUMPED
+	# and FLAG_TELEPORT, which this addon declared from the start and nothing ever wrote.
+	if record_replays:
+		var flags := (DotTimerReplay.FLAG_GROUNDED if grounded else 0) | (replay_flags & (
+			DotTimerReplay.FLAG_DUCKED | DotTimerReplay.FLAG_JUMPED | DotTimerReplay.FLAG_TELEPORT))
+		found.recorder.feed(position, yaw, pitch, flags, buttons)
+		if found.recorder.take_trail_done() and found.pending_replay_record != null:
+			var record := found.pending_replay_record
+			found.pending_replay_record = null
+			_write_replay(found, record)
 
 
 ## Folds movement statistics into a player's current run.
@@ -723,7 +740,29 @@ func _file(found: Player, record: DotTimerRecord) -> void:
 ## Failure is logged and swallowed on purpose: the record is already in the store and
 ## the run already counted. A full disk must not turn an accepted record into a
 ## refused one, and the caller has emitted [signal record_accepted] before this runs.
+## Ends a finished replay's run-out early and writes it if a kept record was waiting for it.
+func _flush_trail(found: Player) -> void:
+	found.recorder.end_trail()
+	var _done := found.recorder.take_trail_done()
+	if found.pending_replay_record != null:
+		var record := found.pending_replay_record
+		found.pending_replay_record = null
+		_write_replay(found, record)
+
+
 func _persist_replay(found: Player, record: DotTimerRecord) -> void:
+	if replays_directory == "" or found.last_replay == null:
+		return
+
+	# Still taking its run-out: written when that ends (tick_player), with it.
+	if found.recorder.is_trailing():
+		found.pending_replay_record = record
+		return
+
+	_write_replay(found, record)
+
+
+func _write_replay(found: Player, record: DotTimerRecord) -> void:
 	if replays_directory == "" or found.last_replay == null:
 		return
 
