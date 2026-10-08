@@ -120,6 +120,47 @@ extends DotConfig
 ## records from, and the fix has to be reachable without a rebuild.
 @export var authoritative: bool = false
 
+@export_group("Ranking")
+
+## Which points formula ranks players: [code]curve[/code], [code]tiered[/code] or
+## [code]placement[/code]. See [DotTimerPoints] for what each rewards. Changing it on a
+## live server re-scores a board the next time its record changes; run
+## [method DotTimerManager.rescore_map] to re-score everything at once.
+@export var points_formula: String = "curve"
+
+## Decay down a player's own list of records when totalling them. 1 = a plain sum.
+@export_range(0.5, 1.0, 0.001) var points_weighting: float = 0.975
+
+## How many of a player's records count. 0 = all.
+@export_range(0, 10000, 1) var points_weighting_limit: int = 0
+
+## [code]tiered[/code]: points per tier step.
+@export_range(1.0, 1000.0, 1.0) var points_per_tier: float = 50.0
+
+## [code]tiered[/code]: a bonus's worth as a fraction of a tier-one map.
+@export_range(0.0, 1.0, 0.01) var bonus_points_factor: float = 0.25
+
+@export_group("Rules")
+
+## Whether a finish must have crossed every stage line to be filed. A map can opt out
+## in its zone file ([code]meta.enforce_stages: false[/code]) for a route with genuine
+## alternatives.
+@export var enforce_stages: bool = true
+
+## Whether pausing has rules (not in the start or end, on the ground, nearly still).
+@export var pause_rules: bool = true
+
+## Metres moved in one tick that stop a run as an unexplained teleport. 0 = off.
+@export_range(0.0, 1000.0, 0.5) var teleport_stop_distance: float = 0.0
+
+## Seconds a dropped player's run in progress is kept for them to come back to.
+## 0 = a disconnect ends the run, as it always did.
+@export_range(0.0, 86400.0, 10.0) var resume_seconds: float = 600.0
+
+## Seconds between writes of a batching store's pending changes. The file store
+## batches; it is written on this interval and when the manager leaves the tree.
+@export_range(0.5, 600.0, 0.5) var flush_seconds: float = 5.0
+
 
 func env_prefix() -> String:
 	return "DOT_TIMER_"
@@ -135,6 +176,13 @@ func validate() -> DotResult:
 			DotError.CODE_INVALID,
 			"tick_rate must be 0 (take it from the engine) or positive.",
 			"%d" % tick_rate
+		)
+
+	if DotTimerPoints.formula_from_name(points_formula) < 0:
+		return DotResult.fail(
+			DotError.CODE_INVALID,
+			"points_formula must be curve, tiered or placement.",
+			points_formula
 		)
 
 	if default_tick_rate < 1:

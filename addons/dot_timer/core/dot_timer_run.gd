@@ -101,6 +101,13 @@ var used_checkpoints: bool = false
 ## Set by the game, sticky for the same reason.
 var tainted: bool = false
 
+## Whether the run reached a CHECKER without its VALIDATOR — a shortcut the map closes.
+## Sticky, and set by the timer.
+var skipped: bool = false
+
+## VALIDATOR numbers passed during this attempt.
+var validated: Dictionary = {}
+
 ## Movement statistics, as a plain dictionary.
 ##
 ## A dictionary rather than a [code]DotFpsStats[/code] because dot-timer must compile
@@ -114,6 +121,19 @@ var max_speed: float = 0.0
 
 ## Sum of per-tick speed, for the average.
 var _speed_sum: float = 0.0
+
+## Horizontal and vertical speed on the tick the run began, m/s. What a start-speed rule
+## judged, kept on the record so the rule can be checked afterwards.
+var start_speed: float = 0.0
+var start_speed_z: float = 0.0
+
+## Seconds of run time per second of simulated time. 1 for every normal style.
+##
+## A slow-motion style runs the world at half speed for that player, and its runs are
+## measured in the slowed time — a minute of real play is thirty seconds on its board —
+## so they compare with each other and with nothing else. Fixed for the life of a run,
+## like [member tick_interval], and for the same reason.
+var time_scale: float = 1.0
 
 
 static func make(
@@ -134,7 +154,7 @@ static func make(
 ## negative time sorts to the top of every leaderboard ever built.
 func time() -> float:
 	return maxf(
-		(float(ticks) - start_offset + end_offset) * tick_interval, 0.0
+		(float(ticks) - start_offset + end_offset) * tick_interval * time_scale, 0.0
 	)
 
 
@@ -143,8 +163,40 @@ func split_time(number: int) -> float:
 	if not splits.has(number):
 		return -1.0
 
-	return maxf((float(splits[number]) - start_offset) * tick_interval, 0.0)
+	return maxf((float(splits[number]) - start_offset) * tick_interval * time_scale, 0.0)
 
+
+## The time of a stage line: 0 for the start, the split for line [param line], and the
+## run's time for [code]-1[/code], the finish. -1 when that line has not been reached.
+func line_time(line: int) -> float:
+	if line == 0:
+		return 0.0
+	if line < 0:
+		return time() if status == Status.FINISHED else -1.0
+	return split_time(line)
+
+
+## The time spent on section [param section], or -1 if the run has not crossed both of
+## its lines.
+##
+## A map with [code]n[/code] stage lines has [code]n + 1[/code] sections: section 1 runs
+## from the start to line 1, section [code]k[/code] from line [code]k - 1[/code] to line
+## [code]k[/code], and the last from line [code]n[/code] to the finish. Pass
+## [param total_sections] ([code]n + 1[/code]) so the last one knows it ends at the
+## finish rather than at a line that does not exist.
+##
+## [b]Both lines, in this run.[/b] A section whose first line was skipped — a player who
+## found a way round stage 2 — has no time, rather than a time measured from wherever
+## they last were, which would be a stage record for a route nobody else is running.
+func section_time(section: int, total_sections: int = 0) -> float:
+	if section <= 0:
+		return -1.0
+	var from := line_time(section - 1)
+	var to_line := -1 if total_sections > 0 and section >= total_sections else section
+	var to := line_time(to_line)
+	if from < 0.0 or to < 0.0 or to < from:
+		return -1.0
+	return to - from
 
 func is_running() -> bool:
 	return status == Status.RUNNING
@@ -170,9 +222,13 @@ func begin(offset: float) -> void:
 	paused_ticks = 0
 	used_checkpoints = false
 	tainted = false
+	skipped = false
+	validated.clear()
 	stats.clear()
 	max_speed = 0.0
 	_speed_sum = 0.0
+	start_speed = 0.0
+	start_speed_z = 0.0
 
 
 ## Advances by one tick. [param speed] feeds the speed statistics.
@@ -237,6 +293,79 @@ func note_stats(data: Dictionary) -> void:
 
 func paused_time() -> float:
 	return float(paused_ticks) * tick_interval
+
+
+# --- Snapshots -------------------------------------------------------------
+
+## The run as plain data, to be put back later — a player who dropped mid-run and came
+## back. Everything that decides the run's time and whether it may be filed, and nothing
+## that only describes it.
+func to_snapshot() -> Dictionary:
+	var split_out := {}
+	for number in splits:
+		split_out[str(number)] = splits[number]
+	return {
+		"status": int(status),
+		"track": track,
+		"style": String(style_id),
+		"ticks": ticks,
+		"tick_interval": tick_interval,
+		"start_offset": start_offset,
+		"splits": split_out,
+		"stage": stage,
+		"paused_ticks": paused_ticks,
+		"used_checkpoints": used_checkpoints,
+		"tainted": tainted,
+		"skipped": skipped,
+		"validated": validated.keys(),
+		"stats": stats.duplicate(true),
+		"max_speed": max_speed,
+		"speed_sum": _speed_sum,
+		"start_speed": start_speed,
+		"start_speed_z": start_speed_z,
+		"time_scale": time_scale,
+	}
+
+
+## A run rebuilt from [method to_snapshot]. Null when the data is not one.
+##
+## [b]Restored PAUSED, whatever it was saved as.[/b] The player is somewhere else when
+## they come back; the host puts them where the run was and resumes it, and until it
+## does the clock must not count the time they spent reconnecting.
+static func from_snapshot(data: Dictionary) -> DotTimerRun:
+	if not data.has("ticks") or not data.has("tick_interval"):
+		return null
+	var run := DotTimerRun.make(
+		int(data.get("track", DotTimerTrack.MAIN)),
+		StringName(str(data.get("style", "normal"))),
+		float(data["tick_interval"])
+	)
+	if run.tick_interval <= 0.0:
+		return null
+	run.status = Status.PAUSED
+	run.ticks = maxi(int(data["ticks"]), 0)
+	run.start_offset = clampf(float(data.get("start_offset", 0.0)), 0.0, 1.0)
+	var split_in: Variant = data.get("splits", {})
+	if split_in is Dictionary:
+		for key in split_in:
+			run.splits[int(key)] = float(split_in[key])
+	run.stage = int(data.get("stage", 0))
+	run.paused_ticks = int(data.get("paused_ticks", 0))
+	run.used_checkpoints = bool(data.get("used_checkpoints", false))
+	run.tainted = bool(data.get("tainted", false))
+	run.skipped = bool(data.get("skipped", false))
+	var validated_in: Variant = data.get("validated", [])
+	if validated_in is Array:
+		for number in validated_in:
+			run.validated[int(number)] = true
+	var stats_in: Variant = data.get("stats", {})
+	run.stats = (stats_in as Dictionary).duplicate(true) if stats_in is Dictionary else {}
+	run.max_speed = float(data.get("max_speed", 0.0))
+	run._speed_sum = float(data.get("speed_sum", 0.0))
+	run.start_speed = float(data.get("start_speed", 0.0))
+	run.start_speed_z = float(data.get("start_speed_z", 0.0))
+	run.time_scale = float(data.get("time_scale", 1.0))
+	return run
 
 
 # --- Presentation ----------------------------------------------------------

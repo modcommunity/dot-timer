@@ -17,3 +17,7 @@ Thumbs.db
 
 # Editors
 .vscode/
+
+# dot-sql: the SQL store's suites drive it with dot-sql's drivers. The addon itself
+# reaches a driver duck-typed and does not need it.
+/addons/dot_sql

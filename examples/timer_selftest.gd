@@ -1195,8 +1195,8 @@ func _test_checkpoints() -> void:
 	_check(timer.runs_finished == 1, "the run finishes")
 	_check(timer.run.used_checkpoints, "and is flagged as having used a checkpoint")
 	_check(
-		not timer.can_record(timer.run).ok,
-		"so it cannot be filed as a record"
+		timer.can_record(timer.run).ok,
+		"and a style that allows them files it, flagged"
 	)
 
 	# On a style that does not allow them at all, using one abandons the run rather
@@ -1388,13 +1388,18 @@ func _test_store() -> void:
 	var wrote := store.put(first)
 
 	_check(wrote.ok, "a first record is accepted")
-	_check(wrote.value == null, "with no previous best")
+	_check(wrote.value["previous"] == null, "with no previous best")
 
 	var slower := _record(&"alice", 35.0)
 	var second := store.put(slower)
 
 	_check(second.ok, "a slower run by the same player is not an error")
-	_check(second.value == first, "and reports the record it did not beat")
+	_check(
+		second.value["previous"] is DotTimerRecord
+			and is_equal_approx((second.value["previous"] as DotTimerRecord).time, 30.0)
+			and not bool(second.value["improved"]),
+		"and reports the record it did not beat"
+	)
 
 	var top := store.top(&"m", 0, &"normal", 10)
 	_check((top.value as Array).size() == 1, "the board still has one row")

@@ -52,6 +52,11 @@ var alive: bool = true
 ## The buttons held, in the host's own vocabulary. Passed through to zone effects.
 var buttons: int = 0
 
+## Whether the player is flying through walls. A run in progress stops the tick this is
+## set: no clip is the one movement mode that makes every map trivial, and a run that
+## merely recorded it would be one more flag a store has to remember to check.
+var noclip: bool = false
+
 ## Anything else a game's own zone kinds need.
 var extra: Dictionary = {}
 

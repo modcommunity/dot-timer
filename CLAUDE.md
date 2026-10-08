@@ -55,6 +55,8 @@ addons/dot_timer/
     dot_timer_record.gd     a finished run, as it is stored and sorted
     dot_timer_sample.gd     one tick of a player, as the timer sees them
     dot_timer_rules.gd      prespeed and speed limits, as pure functions
+    dot_timer_points.gd     what a record is worth: three formulas, weighted totals
+    dot_timer_rank_titles.gd  what a standing is called, from data
   runtime/
     dot_timer_zone_index.gd a uniform grid over the zones
     dot_timer.gd            the timer for one player
@@ -65,9 +67,10 @@ addons/dot_timer/
     dot_timer_zone_volume_2d.gd  authoring in the 2D editor
     dot_timer_zone_painter.gd    authoring from inside the game, two points at a time
   store/
-    dot_timer_store.gd        where records live (abstract)
-    dot_timer_store_memory.gd in a dictionary. The reference implementation
-    dot_timer_store_file.gd   a JSON file per board, written atomically
+    dot_timer_store.gd        where records live (abstract). Every read is awaited
+    dot_timer_store_memory.gd in dictionaries. The reference implementation
+    dot_timer_store_file.gd   a JSON file per board plus five side files, atomically
+    dot_timer_store_sql.gd    SQLite / Postgres / MySQL through a dot-sql driver
   replay/
     dot_timer_replay.gd          the container: quantised, delta-encoded frames
     dot_timer_replay_recorder.gd records one, with a cap
@@ -471,8 +474,10 @@ godot --headless --path . --import
 find . -name '*.gd' -not -path './.godot/*' | while read f; do
     godot --headless --path . --check-only --script "res://${f#./}"
 done
-godot --headless --path . res://examples/timer_selftest.tscn      # 299 checks, 33 sections
-godot --headless --path . res://examples/timer_2d_selftest.tscn   # 27 checks, 4 sections
+godot --headless --path . res://examples/timer_selftest.tscn           # 309 checks, 34 sections
+godot --headless --path . res://examples/timer_2d_selftest.tscn        # 27 checks, 4 sections
+godot --headless --path . res://examples/timer_records_selftest.tscn   # 180 checks, 17 sections
+../dot-sql/tools/test_live.sh . res://examples/timer_sql_live.tscn     # 58 per database
 ```
 
 Exits non-zero on failure. **Run the check-only pass first**: a script that fails to
@@ -558,7 +563,12 @@ sixth was found by game-playground, from the other side:
 | What the tick rate is | `sv_tickrate` in `server.cfg`; `DotTimerConfig.tick_rate = 0` asks the engine |
 | Whether practice mode exists | `DotTimerManager.allow_checkpoints` |
 | Whether a practised run may rank | `DotTimerStyle.allow_checkpoints` |
-| Where records live | `DotTimerStore` subclass on `DotTimerManager.store` |
+| Where records live | `DotTimerStore` subclass on `DotTimerManager.store`; `DotTimerStoreSql` for a database |
+| How records are scored | `DotTimerConfig.points_formula` (curve / tiered / placement), `points_weighting` |
+| What standings are called | `DotTimerManager.titles = DotTimerRankTitles.from_array(...)` |
+| Start rules | `DotTimerStyle.start_speed_cap`, `start_ground_seconds`, `refuse_vertical_start`; a start zone's payload overrides |
+| Whether every stage must be passed | `DotTimerConfig.enforce_stages`, or the zone file's `meta.enforce_stages` |
+| A shortcut a map closes | `VALIDATOR` / `CHECKER` zones, paired by `number` |
 | What a style is worth | `DotTimerStyle`, and `points_for` to change the formula |
 | How the movement changes per style | `DotFpsStyle` in dot-player-controller |
 | A new kind of volume | `DotTimerZone.Kind.CUSTOM` plus `payload`, read on `effect_requested` |
@@ -573,11 +583,12 @@ sixth was found by game-playground, from the other side:
 
 - **A chat, a menu or a `!wr` command.** Console commands belong to dot-server and
   chat to the game. This exposes the queries; what a player types is not its business.
-- **A ranking table across maps.** `DotTimerStyle.points_for` scores one completion;
-  summing them into a player's rank across a server is dot-leaderboard's job, because
-  it is the same problem for a timer, a deathmatch and a 2D game.
-- **Sending records anywhere.** `DotTimerStore` is the seam; the backbone client is
-  dot-leaderboard.
+- **A ranking across GAMES.** A player's points total and rank on this server are here
+  now (see "Records, rankings and rules"), because they are a function of the timer's own
+  boards and every formula needs the board. What a game reports to the site is
+  dot-leaderboard's.
+- **Sending records anywhere off the server.** `DotTimerStore` is the seam; the backbone
+  client is dot-leaderboard.
 - **A replay of another player rendered as a ghost.** `DotTimerReplayPlayer` gives the
   pose; what to draw at it is a game's own decision, and every game draws something
   different.
@@ -596,3 +607,44 @@ sixth was found by game-playground, from the other side:
 - **The run-up and the run-out.** The recorder is fed every tick (`feed`), not only during a run. It keeps a rolling `pre_roll_seconds` (2) before the start and `post_roll_seconds` (1) after the finish, and the header carries `start_frame` and `end_frame` (`run_start_seconds` / `run_end_seconds`), so a ghost or a bot starts at the player's run-up speed and does not stop dead on the line. The replay is **written to disk when its run-out ends** (`pending_replay_record`), not at the finish. A new run, a player leaving or a map change ends a run-out early and writes it as it stands (`_flush_trail`). `DotTimerConfig.replay_pre_roll_seconds` and `replay_post_roll_seconds` set them; 0 turns either off.
 
 `timer_selftest`'s *replay flags* (6): the flags and buttons through the bytes, the teleport written whole, no blend and no speed across it, the recorder detecting one, the manager recording a caller's flags and buttons, a version-1 file read. *a kept replay reaches the disk* (+3): the replay waits for its run-out, then has both the run-up and the run-out, and the run between them is the run's own time. Armed by blending across a teleport: the ghost was drawn at 15.05 m mid-teleport. game-playground and game-g2gfast pass `player.replay_flags()` (ducked past half a crouch, jumped within a tick and a half, teleported by the player's own `teleport`).
+
+## Records, rankings and rules (2026-10-08)
+
+The records half grew from "a board per map, track and style" to what a timer server is asked all evening. The parity target was the union of the two community timer plugins the genre runs on; the design below is this addon's own.
+
+### The store interface, and why every read is awaited
+
+`DotTimerStore` now carries boards (with a `stage` for section records), history, players and points, a map catalogue, attempts per board, saved runs for reconnects, and wipes. **Every call is awaited**, including against the memory store where it returns at once, because the SQL store crosses a network and an interface written against the fast case is rewritten the first time somebody points it at a database. The two `peek_*` methods are the exception and are synchronous on purpose: a HUD draws every frame. They answer from what the store already holds and a `null` means "not known yet", never "nobody has a time" (that is `false`, or an empty list).
+
+**`put()` returns a dictionary** (`previous`, `improved`, `previous_record`, `completions`), not the previous record. Every finish is counted on the row, kept or not, because the store is the only thing that sees every finish. **Ranks are shared by ties** (1, 2, 2, 4) in every store, and the site ranks the same way.
+
+**One contract, three stores.** `examples/timer_store_contract.gd` is 46 checks run unchanged against the memory store and the file store (in `timer_records_selftest`) and against SQLite, Postgres and MySQL (in `timer_sql_live`). A second copy of a check is a second place for an expected rank to be wrong.
+
+### The SQL store
+
+`DotTimerStoreSql` holds a **duck-typed** dot-sql driver (see dot-sql's CLAUDE.md for why no addon names a dot-sql class). Six tables under a configurable prefix: `records`, `history`, `players`, `maps`, `progress`, `resume`. Versioned through dot-sql's migrator as `dot_timer:<prefix>`.
+
+- **Two servers can share a board.** An improvement is `UPDATE … WHERE time > ?`, so a slower run filed by a server whose read was stale can never overwrite a faster one another server filed first. `timer_sql_live` does exactly that on all three databases.
+- **Reads are cached, writes go straight through.** A board's top, its size and each player's best are cached for `cache_seconds` (10); this server's own writes update the cache as they land, so a record set here is on the HUD at once. Another server's record is at most `cache_seconds` old. `peek_*` returns the cache and starts one background fetch per key, not one per frame.
+- **MySQL evaluates `SET a = …, b = a + 1` left to right with the new `a`;** Postgres and SQLite read the old row. `note_progress` binds the computed value instead of writing `time_to_first = time_spent + ?`.
+
+### Points
+
+`DotTimerPoints` has three formulas: `curve` (the existing `DotTimerStyle.points_for`, still the default, and still called through the style so an override keeps working), `tiered` (linear in tier plus a share of the record's length, bonuses at a fraction) and `placement` (by place on a crowded board, plus a completion award by tier). **A board is re-scored whenever its record changes**, and on any change under `placement`, because every row's worth depends on the record. Before, points were computed once at filing against the record of the moment and never again. A player's total is `sum(points[i] * weighting^i)` over their whole-run records, best first; sections earn nothing.
+
+### Rules
+
+Start: `start_speed_cap`, `start_ground_seconds` (judged on the last grounded stretch, so a hop through the start does not count as standing in it), `refuse_vertical_start`, all waived below `start_rules_below`, and overridden by the start zone's payload. Refusals are emitted (`start_refused`) for the same reason `record_refused` is. Finish: `enforce_stages` (every stage line must be crossed; a map opts out in its zone file), `VALIDATOR`/`CHECKER` zones (a checker reached without its validator marks the run skipped and asks the host to send the player back). During: `pause_checked` (not in the start or end, grounded, nearly still; the snapshot is what resuming puts back), `sample.noclip` stops a run, and `teleport_stop_distance` stops one on an unexplained jump (off by default; a teleport this timer asked for is expected, and `expect_teleport()` declares any other). Slow-motion styles: `DotTimerStyle.timescale`, carried on the run and the record.
+
+### The manager
+
+Filing is a coroutine now: `put`, then re-score, then `record_accepted` (unchanged) and `run_filed` (everything a message needs). Section records are filed as their second line is crossed, from runs clean so far. A refused finish gets `practice_finished` with the place it would have taken. A dropped run is saved on `remove_player` and offered back on `add_player` (`resume_available`, `restore_player`) if the zones and tick rate are unchanged, comes back paused, and is marked `stats.resumed` with no replay. `teleport_requested` asks the host for restarts, auto-restarts and `!end`. `profile`, `top_players`, `recent_records`, `maps_done`, `maps_left`, `section_records`, `suggest_time_limit` and `would_rank` are the answers a game's commands phrase.
+
+### Bugs this found
+
+- **The file store was never written.** `DotTimerManager.apply_config` built a `DotTimerStoreFile` whenever a records directory was configured, and **nothing in the family ever called its `flush()`**: every record went into its memory half and was lost at the next restart, with no error, because a record in memory reads back exactly like one on disk until the process ends. The manager now flushes every `flush_seconds` and on leaving the tree; `_test_manager_flushes_the_file_store` fails without it.
+- **A style that allowed checkpoints could never file a run.** `DotTimerStyle.allow_checkpoints` was documented as "filed with the flag set", and `can_record` refused any run with the flag regardless. The old suite asserted the refusal; it now asserts the filing, flagged `extra.segmented`.
+- **Points never moved when a record did** (above).
+
+**A review pass found five more, all fixed the same day:** a dropped run restored onto whatever style the player had switched to (filed on the wrong board; `restore_run` now refuses a style mismatch); a removed or wiped player's total still counting the removed records (`remove_record` and `wipe_player` on the manager re-total them and re-score every map they were on, and `points_changed` names everybody whose total moved); the SQL store announcing an improvement another server had already beaten (it now reads the row back after the conditional write and asks the board, after the write, whether this run took first place); floats losing their last digits on the gateway so a fresh best ranked behind itself (full-precision JSON in dot-sql, and the store caches the row it read back); and the SQLite driver reporting `true` instead of an affected-row count.
+

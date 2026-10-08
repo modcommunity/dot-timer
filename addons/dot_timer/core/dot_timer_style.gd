@@ -86,6 +86,42 @@ extends Resource
 ## Seconds a run may be paused for before it is abandoned. 0 = no limit.
 @export_range(0.0, 3600.0, 1.0) var maximum_pause: float = 0.0
 
+@export_group("Start")
+
+## Seconds the player must have been on the ground before the run may begin.
+##
+## Stops a run begun mid-bunny-hop: a player who lands in the start zone and jumps
+## straight out carries speed the start was meant to take away. Judged on the last time
+## they were grounded, so walking out after standing still always counts. 0 = no rule.
+@export_range(0.0, 5.0, 0.05) var start_ground_seconds: float = 0.0
+
+## Refuse to begin a run while the player is moving up or down.
+##
+## A ramp or a jump pad beside the start line hands out vertical speed a flat start
+## does not, and on some maps that is the whole route. Off by default; a map's start
+## zone can carry the rule instead (payload [code]"no_vertical": true[/code]).
+@export var refuse_vertical_start: bool = false
+
+## Horizontal speed above which leaving the start does not begin a run, m/s. 0 = none.
+##
+## [b]A refusal, not a clamp.[/b] Clamping the player's speed happens inside the
+## simulation ([method DotTimerRules.clamp_prespeed], called by the host on both machines
+## on the same tick) and is a movement rule; this is the records rule behind it — a run
+## that left too fast is not a run on this style, whatever the movement did. A start
+## zone's payload [code]"prespeed"[/code] overrides it for that zone.
+@export_range(0.0, 200.0, 0.1) var start_speed_cap: float = 0.0
+
+## Speed below which every start rule is waived, m/s.
+##
+## A floating bonus start, or one on a moving platform, has the player leaving it with a
+## little speed nobody could avoid; refusing those would make the bonus impossible.
+@export_range(0.0, 10.0, 0.1) var start_rules_below: float = 1.0
+
+## Seconds of run time per second played. 1 for every normal style; 0.5 for a
+## slow-motion style. The movement half (the world running slower) is the host's; this
+## is what the clock counts. See [member DotTimerRun.time_scale].
+@export_range(0.05, 4.0, 0.05) var timescale: float = 1.0
+
 
 ## The points a completion is worth, before the multiplier.
 ##
@@ -146,6 +182,11 @@ func to_dictionary() -> Dictionary:
 		"allow_checkpoints": allow_checkpoints,
 		"allow_air_start": allow_air_start,
 		"maximum_pause": maximum_pause,
+		"start_ground_seconds": start_ground_seconds,
+		"refuse_vertical_start": refuse_vertical_start,
+		"start_speed_cap": start_speed_cap,
+		"start_rules_below": start_rules_below,
+		"timescale": timescale,
 	}
 
 
@@ -166,6 +207,11 @@ static func from_dictionary(data: Dictionary) -> DotTimerStyle:
 	style.allow_checkpoints = bool(data.get("allow_checkpoints", false))
 	style.allow_air_start = bool(data.get("allow_air_start", false))
 	style.maximum_pause = float(data.get("maximum_pause", 0.0))
+	style.start_ground_seconds = float(data.get("start_ground_seconds", 0.0))
+	style.refuse_vertical_start = bool(data.get("refuse_vertical_start", false))
+	style.start_speed_cap = float(data.get("start_speed_cap", 0.0))
+	style.start_rules_below = float(data.get("start_rules_below", 1.0))
+	style.timescale = clampf(float(data.get("timescale", 1.0)), 0.05, 4.0)
 
 	return style
 

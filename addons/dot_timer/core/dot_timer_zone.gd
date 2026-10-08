@@ -75,6 +75,16 @@ enum Kind {
 	CHECKPOINT,
 	## Anything the game invented. [member payload] carries it.
 	CUSTOM,
+	## Marks the player as having passed a point on the route. [member number] pairs it
+	## with the [constant CHECKER]s it satisfies. Appended, never inserted: kinds are
+	## stored by name but a re-numbering is still a silent corruption of every file
+	## that kept the integer.
+	VALIDATOR,
+	## A point a skip would reach: entering it without having passed its
+	## [constant VALIDATOR] (same [member number]) disqualifies the run and asks the host
+	## to send the player back to the track's spawn ([signal DotTimer.effect_requested]).
+	## The pair is how a mapper closes a shortcut without redrawing the map.
+	CHECKER,
 }
 
 ## How the volume is described.

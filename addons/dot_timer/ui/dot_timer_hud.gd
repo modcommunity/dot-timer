@@ -74,6 +74,14 @@ enum Placement {
 ## draws nothing regardless, so this can be left on.
 @export var show_stage: bool = true
 
+## The standing line: the record, the player's best, and their place on the board.
+## Drawn only with something to say — a map nobody has finished shows no "WR —".
+@export var show_standing: bool = true
+
+## Marks a run that used a practice checkpoint, on the clock itself. The one thing a
+## player must not misread is whether the time they are watching can be filed.
+@export var show_practice: bool = true
+
 ## Which comparison the split line is against.
 @export var comparison: Comparison = Comparison.PERSONAL_BEST
 
@@ -168,6 +176,10 @@ var stage_comparison: Dictionary = {}
 ## not have to remember to unset it.
 var notice: String = ""
 
+## The player's place on this board, and how many are on it. 0 = not ranked here.
+var rank: int = 0
+var rank_total: int = 0
+
 var _font: Font = null
 
 ## The plate, rebuilt only when its colour or radius changes — `_draw` runs every
@@ -210,6 +222,14 @@ func set_stage_reference(p_stage_count: int, p_splits: Dictionary = {}) -> void:
 	# aliasing that put every leaderboard on the server into the last scope anybody
 	# asked for. See DotLeaderboardDef.scoped.
 	stage_comparison = p_splits.duplicate(true)
+	queue_redraw()
+
+
+## Sets the player's place on the board. Call when it changes — after a finish — not
+## every frame.
+func set_standing(p_rank: int, p_total: int) -> void:
+	rank = maxi(p_rank, 0)
+	rank_total = maxi(p_total, 0)
 	queue_redraw()
 
 
@@ -256,9 +276,15 @@ func _rows() -> Array:
 		rows.append([[notice, small, neutral_colour]])
 
 	if show_time:
-		var clock: Array = [
+		var clock: Array = []
+		if show_practice and run != null and run.used_checkpoints:
+			# Before the time, in the "behind" colour: a practised run is not a run
+			# that counts, and the clock reading as one is how a player wastes the
+			# best attempt of their evening believing it will be filed.
+			clock.append(["[P]", small, behind_colour])
+		clock.append(
 			[run.formatted_time() if run != null else "0:00.000", clock_size, _clock_colour()]
-		]
+		)
 
 		# The split rides ON the clock line rather than under it. It is the same
 		# number in two forms and a player reads them together; two lines is two
@@ -302,7 +328,25 @@ func _rows() -> Array:
 		for field: Array in details:
 			rows.append([field])
 
+	var standing := _standing_fragments(small)
+	if not standing.is_empty():
+		rows.append(standing)
+
 	return rows
+
+
+## The standing line, as fragments. Empty when there is nothing to stand on.
+func _standing_fragments(small: int) -> Array:
+	if not show_standing:
+		return []
+	var out: Array = []
+	if world_record > 0.0:
+		out.append(["WR " + DotTimerRun.format_time(world_record), small, detail_colour])
+	if personal_best > 0.0:
+		out.append(["PB " + DotTimerRun.format_time(personal_best), small, detail_colour])
+	if rank > 0 and rank_total > 0:
+		out.append(["#%d / %d" % [rank, rank_total], small, ahead_colour if rank == 1 else detail_colour])
+	return out
 
 
 ## The stage field: how far through a staged map the run is, and the gap there.

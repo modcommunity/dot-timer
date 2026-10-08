@@ -24,9 +24,12 @@ Shaped by the community timer plugins the genre grew up on, rewritten for Godot 
 - **Tracks**: a main route and up to eight bonuses, each with its own zones, records and leaderboard.
 - **Styles**: sideways, half-sideways, backwards, low gravity and prebhop. A ranking weight and a minimum time live here; the movement transform lives in [dot-player-controller](https://github.com/modcommunity/dot-player-controller).
 - **Replays**: quantised and delta-encoded to under 12 bytes a frame, with playback sampled at a time so it runs at the right speed on any monitor.
-- **Records**: a store interface with in-memory and file implementations, ranking points, and the structural refusals that make the obvious exploits impossible.
+- **Records**: kept in memory, in JSON files, or in SQLite, PostgreSQL or MySQL through [dot-sql](https://github.com/modcommunity/dot-sql). Several servers can share one database and one leaderboard. Every board has its world record, top lists, ranks (ties share a place), completion counts, the latest records, and a record per stage of a staged map. Reads are cached so a HUD never waits on the database.
+- **Rankings**: points per record from one of three formulas (`curve`, `tiered`, `placement`), boards re-scored when their record changes, a weighted total per player, a ranked players list, and rank titles from a list you supply.
+- **Players**: a profile (rank, points, title, records held, maps done and left, play time), attempts and time spent per map, and a dropped run kept for ten minutes so a player who disconnects mid-run can take it back.
+- **Rules**: start speed caps, time on the ground before a start, no starting while moving up or down, every stage required for a finish to count, validator and checker zones that close a shortcut, pause rules, and runs stopped by no clip or an unexplained teleport.
 - **Practice mode**: `+cp` / `+tp` checkpoints, with the taint rules the genre expects: saving is free, restoring costs you the run.
-- **A HUD**: clock, split against a personal best or the record, speedometer, strafe statistics. No art and no theme, so you style it.
+- **A HUD**: clock, split against a personal best or the record, speedometer, strafe statistics, the record and your best with your place on the board, and a `[P]` marker on a practised run. No art and no theme, so you style it.
 - **Configured like a server**, not like a scene: `DotTimerConfig` layers a file, the environment and the command line, and takes its tick rate from `sv_tickrate`.
 - **2D as well as 3D.** The timer works on positions rather than on a controller, so a 2D game passes `Vector3(x, y, 0)` against zones authored with `DotTimerZoneVolume2D`, and files into the same records table a surf server does.
 
@@ -42,7 +45,7 @@ Only dot-core is required. dot-player-controller, dot-net and dot-server are opt
 var manager := DotTimerManager.new()
 manager.authoritative = true          # on the server. A client leaves this false.
 manager.tick_rate = 128
-manager.store = DotTimerStoreFile.at("user://records")
+manager.store = DotTimerStoreFile.at("user://records")   # or DotTimerStoreSql, below
 add_child(manager)
 
 manager.set_styles(DotTimerStyle.defaults())
@@ -66,6 +69,21 @@ manager.tick_player(
 ```
 
 Not from `_process`. A timer sampled per frame counts a different number of ticks on a 144 Hz monitor than on a 60 Hz one, and the player's time then depends on their hardware.
+
+`run_filed` has everything a "you finished" message needs: the record, the previous best and record, whether it is a new record, the rank, the board's size, the points and the player's title.
+
+## Records in a database
+
+```gdscript
+var made := DotSql.from_config({"driver": "sqlite", "path": "user://records.db"}, self)
+var store := DotTimerStoreSql.new(made.value)
+var opened := await store.open()      # creates or migrates the tables
+manager.store = store
+```
+
+For PostgreSQL or MySQL, point dot-sql at its HTTP gateway instead. dot-timer does not need dot-sql installed unless you use this store.
+
+The questions a server's chat commands ask are on the manager: `profile`, `top_players`, `recent_records`, `maps_done`, `maps_left`, `section_records`, `suggest_time_limit`, `would_rank`, and for admins `set_map_tier`, `rescore_map` and the store's `wipe_player`, `wipe_board` and `remove`.
 
 ## Drawing zones without an editor
 
@@ -91,8 +109,10 @@ It adds height above the marked corners for you, because both marks are taken at
 
 ```bash
 godot --headless --path . --import
-godot --headless --path . res://examples/timer_selftest.tscn      # 255 checks
-godot --headless --path . res://examples/timer_2d_selftest.tscn   # 25 checks
+godot --headless --path . res://examples/timer_selftest.tscn           # 309 checks
+godot --headless --path . res://examples/timer_2d_selftest.tscn        # 27 checks
+godot --headless --path . res://examples/timer_records_selftest.tscn   # 180 checks
+../dot-sql/tools/test_live.sh . res://examples/timer_sql_live.tscn     # 58 checks per database
 ```
 
 ## Licence

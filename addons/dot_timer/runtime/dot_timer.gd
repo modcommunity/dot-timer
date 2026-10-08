@@ -65,6 +65,12 @@ signal effect_requested(zone: DotTimerZone)
 ## one at a time has to work out what to undo.
 signal effects_changed()
 
+## Leaving the start did not begin a run, and why — "too fast", "you were not on the
+## ground long enough". Emitted rather than swallowed for the reason
+## [signal DotTimerManager.record_refused] is: "I left the start and nothing happened"
+## is a complaint the player could have been answered for.
+signal start_refused(reason: String)
+
 ## Why a run stopped. StringNames rather than an enum so a game can add its own.
 const REASON_ZONE := &"zone"
 const REASON_DEATH := &"death"
@@ -74,6 +80,8 @@ const REASON_RESET := &"reset"
 const REASON_CHECKPOINT := &"checkpoint"
 const REASON_TELEPORT := &"teleport"
 const REASON_PAUSE_EXPIRED := &"pause_expired"
+const REASON_NOCLIP := &"noclip"
+const REASON_AUTO_RESTART := &"auto_restart"
 
 ## Zone kinds that ask the HOST to do something the moment the player enters one.
 ##
@@ -86,6 +94,14 @@ const REQUEST_KINDS: Array[DotTimerZone.Kind] = [
 	DotTimerZone.Kind.SLAY,
 	DotTimerZone.Kind.TELEPORT,
 	DotTimerZone.Kind.CUSTOM,
+]
+
+## Kinds whose request means the host is about to move the player. A teleport that
+## follows one is expected; see [member teleport_stop_distance].
+const MOVING_KINDS: Array[DotTimerZone.Kind] = [
+	DotTimerZone.Kind.RESPAWN,
+	DotTimerZone.Kind.TELEPORT,
+	DotTimerZone.Kind.CHECKER,
 ]
 
 ## Zone kinds that describe a condition while inside, rather than an event on entry.
@@ -124,6 +140,30 @@ var track: int = DotTimerTrack.MAIN
 ## sets this; a client leaves it false and treats its own answer as a display.
 var authoritative: bool = false
 
+## Whether a run must pass every stage line to be filed.
+##
+## On by default: a staged map's stage lines are the route, and a finish that skipped
+## one found a way round the map. A map that genuinely allows either of two routes says
+## so in its zone file ([code]meta.enforce_stages: false[/code]) — [DotTimerManager]
+## reads it — rather than every server turning the check off.
+var enforce_stages: bool = true
+
+## Metres moved in one tick that count as an unexplained teleport, stopping a run in
+## progress. 0 = off.
+##
+## Off by default because a host moves players for many legitimate reasons this timer
+## cannot see. A teleport this timer DID ask for (a respawn, a teleport zone, a checker)
+## is expected for two ticks, and [method expect_teleport] declares any other; anything
+## else that jumps further than this mid-run is an admin command, a desync or a cheat,
+## and none of those is a run.
+var teleport_stop_distance: float = 0.0
+
+## Rules a pause must clear. See [method pause_checked].
+var pause_rules: bool = true
+
+## Fastest a player may be moving and still pause, m/s.
+var pause_max_speed: float = 0.5
+
 ## Zones the player was inside on the previous tick, by id.
 var _inside: Dictionary = {}
 
@@ -143,6 +183,22 @@ var _pause_ticks: int = 0
 ##
 ## The run begins when they LEAVE it, which needs the previous tick's answer.
 var _was_in_start: bool = false
+
+## Consecutive grounded ticks, and how long the last grounded stretch was when they left
+## the ground. The start rule asks the second: a player who jumped out of the start was
+## not grounded on the tick they left it, and what matters is whether they had stood
+## still before the jump.
+var _ground_ticks: int = 0
+var _last_ground_streak: int = 0
+
+## Ticks during which a teleport is expected rather than suspicious.
+var _expect_teleport_ticks: int = 0
+
+## Where the player was, and how they were moving, when the run was paused.
+var _pause_snapshot: Dictionary = {}
+
+## The start zone the player was last inside, for its own speed rules.
+var _start_zone: DotTimerZone = null
 
 ## Diagnostic counters.
 var ticks_processed: int = 0
@@ -198,6 +254,24 @@ func tick(sample: DotTimerSample) -> void:
 	_diff_membership(_found)
 	_rebuild_effects(_found)
 
+	if sample.grounded:
+		_ground_ticks += 1
+	else:
+		if _ground_ticks > 0:
+			_last_ground_streak = _ground_ticks
+		_ground_ticks = 0
+
+	if run.is_active():
+		if sample.noclip:
+			_stop(REASON_NOCLIP)
+		elif (
+			teleport_stop_distance > 0.0 and _expect_teleport_ticks <= 0
+			and sample.position.distance_to(sample.previous_position) > teleport_stop_distance
+		):
+			_stop(REASON_TELEPORT)
+	if _expect_teleport_ticks > 0:
+		_expect_teleport_ticks -= 1
+
 	if not sample.alive:
 		# Death abandons the run. Reported before the zone handling so a player who
 		# dies inside a finish zone does not finish.
@@ -210,6 +284,8 @@ func tick(sample: DotTimerSample) -> void:
 	var in_start := false
 
 	for zone in _found:
+		if zone.kind == DotTimerZone.Kind.START and zone.track == track:
+			_start_zone = zone
 		if zone.track != track:
 			# A zone belonging to another track is still reported as entered — a HUD
 			# and an anti-cheat both want to know — but it never affects this run.
@@ -227,6 +303,9 @@ func tick(sample: DotTimerSample) -> void:
 			DotTimerZone.Kind.STOP:
 				if run.is_active():
 					_stop(REASON_ZONE)
+			DotTimerZone.Kind.VALIDATOR:
+				if run.is_active():
+					run.validated[int(zone.number)] = true
 			_:
 				pass
 
@@ -291,8 +370,18 @@ func _request_effects() -> void:
 		if zone.track != track:
 			continue
 
-		if zone.kind in REQUEST_KINDS:
-			effect_requested.emit(zone)
+		if zone.kind == DotTimerZone.Kind.CHECKER:
+			# Only a checker that was not validated sends anybody back, and only during
+			# a run: walking through one with no run going is not skipping anything.
+			if not run.is_active() or run.validated.has(int(zone.number)):
+				continue
+			run.skipped = true
+		elif not (zone.kind in REQUEST_KINDS):
+			continue
+
+		if zone.kind in MOVING_KINDS:
+			expect_teleport()
+		effect_requested.emit(zone)
 
 
 ## Rolls this tick's position forward to be the next tick's "previous".
@@ -393,6 +482,11 @@ func _try_start(sample: DotTimerSample) -> void:
 	if style != null and not style.allow_air_start and not sample.grounded:
 		return
 
+	var refused := _start_refusal(sample)
+	if refused != "":
+		start_refused.emit(refused)
+		return
+
 	var start_zone := _zone_for(DotTimerZone.Kind.START)
 
 	var fraction := 0.0
@@ -403,7 +497,10 @@ func _try_start(sample: DotTimerSample) -> void:
 		)
 
 	run = DotTimerRun.make(track, _style_id(), tick_interval())
+	run.time_scale = style.timescale if style != null else 1.0
 	run.begin(fraction)
+	run.start_speed = Vector2(sample.velocity.x, sample.velocity.z).length()
+	run.start_speed_z = sample.velocity.y
 
 	runs_started += 1
 	_pause_ticks = 0
@@ -413,6 +510,37 @@ func _try_start(sample: DotTimerSample) -> void:
 	})
 
 	run_started.emit(run)
+
+
+## Why leaving the start does not begin a run, or "" if it does.
+##
+## The style's rules, overridden by the start zone's own payload where a mapper set one:
+## [code]"prespeed"[/code] (m/s), [code]"no_vertical"[/code] and
+## [code]"ground_seconds"[/code]. Every rule is waived below
+## [member DotTimerStyle.start_rules_below], for a start nobody can leave standing still.
+func _start_refusal(sample: DotTimerSample) -> String:
+	if style == null:
+		return ""
+	var payload: Dictionary = _start_zone.payload if _start_zone != null else {}
+	var speed := Vector2(sample.velocity.x, sample.velocity.z).length()
+	if speed <= style.start_rules_below and absf(sample.velocity.y) <= style.start_rules_below:
+		return ""
+
+	var cap := float(payload.get("prespeed", style.start_speed_cap))
+	if cap > 0.0 and speed > cap:
+		return "Too fast leaving the start: %.1f m/s, the limit is %.1f." % [speed, cap]
+
+	var no_vertical := bool(payload.get("no_vertical", style.refuse_vertical_start))
+	if no_vertical and absf(sample.velocity.y) > 0.05:
+		return "Leave the start on the level, not moving up or down."
+
+	var ground_seconds := float(payload.get("ground_seconds", style.start_ground_seconds))
+	if ground_seconds > 0.0:
+		var streak := _ground_ticks if sample.grounded else _last_ground_streak
+		if float(streak) * tick_interval() < ground_seconds:
+			return "Stand in the start for %.1f s before leaving it." % ground_seconds
+
+	return ""
 
 
 func _try_finish(sample: DotTimerSample) -> void:
@@ -583,6 +711,63 @@ func resume() -> bool:
 	return false
 
 
+## Pauses the run if the rules allow it, keeping where the player was.
+##
+## [b]The rules are what stop a pause being a free checkpoint.[/b] Paused in the air
+## above a gap and resumed on the far side is a skip; paused at speed and resumed with
+## the speed is a free run-up. So: not in the start or the end, on the ground, nearly
+## still. The snapshot is what [method resume_checked] hands back for the host to put
+## the player at, so resuming always continues from exactly where the pause began.
+func pause_checked(sample: DotTimerSample) -> DotResult:
+	if not run.is_running():
+		return DotResult.fail(DotError.CODE_STATE, "There is no run to pause.")
+	if pause_rules and sample != null:
+		if in_zone(DotTimerZone.Kind.START) or in_zone(DotTimerZone.Kind.END):
+			return DotResult.fail(DotError.CODE_FORBIDDEN, "You cannot pause in the start or the end.")
+		if not sample.grounded:
+			return DotResult.fail(DotError.CODE_FORBIDDEN, "You can only pause on the ground.")
+		if sample.velocity.length() > pause_max_speed:
+			return DotResult.fail(DotError.CODE_FORBIDDEN, "Stop moving before you pause.")
+	_pause_snapshot = {
+		"position": sample.position if sample != null else Vector3.ZERO,
+		"velocity": sample.velocity if sample != null else Vector3.ZERO,
+	}
+	run.pause()
+	return DotResult.success(_pause_snapshot.duplicate())
+
+
+## Resumes a paused run. Success carries the snapshot [method pause_checked] took — the
+## host puts the player back there before the next tick, which is why the move that
+## follows is an expected teleport rather than a suspicious one.
+func resume_checked() -> DotResult:
+	if run.status != DotTimerRun.Status.PAUSED:
+		return DotResult.fail(DotError.CODE_STATE, "The run is not paused.")
+	resume()
+	expect_teleport()
+	return DotResult.success(_pause_snapshot.duplicate())
+
+
+## Declares that the host is about to move the player, so the move does not stop the
+## run. See [member teleport_stop_distance].
+func expect_teleport(ticks: int = 2) -> void:
+	_expect_teleport_ticks = maxi(_expect_teleport_ticks, ticks)
+
+
+## Puts a saved run back — a player who dropped mid-run returning. The run comes back
+## PAUSED; the host moves the player to where it was and calls [method resume_checked].
+func restore_run(restored: DotTimerRun, at: Vector3 = Vector3.ZERO, velocity: Vector3 = Vector3.ZERO) -> bool:
+	# The run is the style it was run on: a run restored onto another style would be
+	# filed on that style's board — half a run on low gravity, ranked as normal.
+	if restored == null or restored.track != track or restored.style_id != _style_id():
+		return false
+	if run.is_active():
+		_stop(REASON_RESET)
+	run = restored
+	_pause_snapshot = {"position": at, "velocity": velocity}
+	_pause_ticks = 0
+	return true
+
+
 ## Marks the run as having used a practice checkpoint.
 ##
 ## [b]Sticky for the rest of the attempt.[/b] A run in which the player restored a
@@ -637,7 +822,10 @@ func can_record(finished: DotTimerRun) -> DotResult:
 			String(style.id)
 		)
 
-	if finished.used_checkpoints:
+	# A style that allows checkpoints files the run anyway — that is what the switch
+	# means (see DotTimerStyle.allow_checkpoints), and refusing here regardless made a
+	# segmented style one that could never file anything.
+	if finished.used_checkpoints and not (style != null and style.allow_checkpoints):
 		return DotResult.fail(
 			DotError.CODE_FORBIDDEN, "The run used practice checkpoints."
 		)
@@ -646,6 +834,23 @@ func can_record(finished: DotTimerRun) -> DotResult:
 		return DotResult.fail(
 			DotError.CODE_FORBIDDEN, "The run was assisted."
 		)
+
+	# After the refusals above on purpose: a run that was assisted AND skipped a stage
+	# was assisted, and that is the reason the player should be told.
+	if finished.skipped:
+		return DotResult.fail(
+			DotError.CODE_FORBIDDEN, "The run skipped part of the route."
+		)
+
+	if enforce_stages and zones != null:
+		var stages := zones.stage_count(finished.track)
+		for number in range(1, stages + 1):
+			if not finished.splits.has(number):
+				return DotResult.fail(
+					DotError.CODE_FORBIDDEN,
+					"The run missed stage %d." % number,
+					"%d of %d stages" % [finished.splits.size(), stages]
+				)
 
 	var floor_time := (
 		style.minimum_time_for(finished.track) if style != null else 0.0
@@ -692,6 +897,10 @@ func _reset_state(reason: StringName) -> void:
 	_found.clear()
 	_was_in_start = false
 	_pause_ticks = 0
+	_ground_ticks = 0
+	_last_ground_streak = 0
+	_expect_teleport_ticks = 0
+	_start_zone = null
 
 	if run.is_active():
 		_stop(reason)
