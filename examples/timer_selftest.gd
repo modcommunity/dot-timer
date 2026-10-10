@@ -20,7 +20,7 @@ extends Node
 ## — the property under test belongs to [DotTimer], and against a hand-computed path a
 ## failure has exactly one possible cause.
 
-const CHECKS := 309
+const CHECKS := 312
 
 ## Sections entered against sections that ran to their last line, and against this. A
 ## runtime error inside a section aborts that function and nothing says so; a section that
@@ -637,6 +637,31 @@ func _test_start_on_leaving() -> void:
 		timer.tick(sample)
 
 	_check(timer.runs_started == 1, "and leaving it does")
+
+	# Back into the start zone. The attempt is over the moment they are in it, not when
+	# they next leave it: the clock reads zero while they build their speed up again.
+	var reasons := PackedStringArray()
+	timer.run_stopped.connect(
+		func(_run: DotTimerRun, reason: StringName) -> void: reasons.append(String(reason))
+	)
+	var back := sample.position.x
+	while back > 2.0:
+		back -= 0.5
+		sample.position = Vector3(back, 0.0, 0.0)
+		sample.velocity = Vector3(-6.4, 0.0, 0.0)
+		timer.tick(sample)
+	_check(
+		timer.run.status == DotTimerRun.Status.STOPPED and reasons == PackedStringArray(["reset"]),
+		"walking back into the start zone ends the run there, as a reset",
+		"status %d, reasons %s" % [timer.run.status, str(reasons)]
+	)
+	_check(timer.run.time() == 0.0, "and the clock reads zero while they are in it",
+		"%.3f s" % timer.run.time())
+	for i in range(60):
+		sample.position = Vector3(2.0 + float(i) * 0.1, 0.0, 0.0)
+		sample.velocity = Vector3(12.8, 0.0, 0.0)
+		timer.tick(sample)
+	_check(timer.runs_started == 2 and timer.run.is_running(), "and leaving again starts a new one")
 
 	# The air-start rule.
 	var strict := DotTimerStyle.new()

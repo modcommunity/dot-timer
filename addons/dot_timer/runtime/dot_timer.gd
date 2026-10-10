@@ -309,6 +309,15 @@ func tick(sample: DotTimerSample) -> void:
 			_:
 				pass
 
+	# [b]Back in the start zone is the end of the attempt.[/b] A run that is still going
+	# when its player stands in the start again is one they have given up on: every timer
+	# in this genre stops and zeroes the clock there, so the HUD reads 0 while they build
+	# their speed up again. Without this the old run kept counting until they LEFT the zone
+	# — and a style that refuses an air start never left it as far as the timer was
+	# concerned when they jumped out, so the stale run ran on past the start line.
+	if in_start and run.is_active():
+		_stop(REASON_RESET)
+
 	# Started on LEAVING the start zone, not on entering it.
 	#
 	# This is how every timer in this genre works and it is not arbitrary: the start

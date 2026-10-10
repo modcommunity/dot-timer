@@ -490,8 +490,9 @@ func _test_pause_rules() -> void:
 	var resumed := timer.resume_checked()
 	_check("and resuming hands back where they were", resumed.ok and (resumed.value["position"] as Vector3).is_equal_approx(at) and timer.run.is_running())
 
-	# Out of the start, so the run begins, then back into it: the run keeps going (it
-	# only starts on leaving), and a pause there would be a free restart.
+	# Out of the start, so the run begins, then back into it. A pause there would be a
+	# free restart; it is refused because there is no run left to pause — standing in the
+	# start zone ends the attempt (`DotTimer._step`), as it does in every timer of the genre.
 	var in_start := _timer()
 	var s2 := DotTimerSample.new()
 	for i in range(100):
@@ -499,7 +500,7 @@ func _test_pause_rules() -> void:
 	for i in range(60):
 		_step(in_start, s2, 8.0 - float(i) * 0.1, Vector3(-12.8, 0.0, 0.0))
 	s2.velocity = Vector3.ZERO
-	_check("nobody pauses in the start zone", in_start.run.is_active() and in_start.in_zone(DotTimerZone.Kind.START) and not in_start.pause_checked(s2).ok)
+	_check("nobody pauses in the start zone", not in_start.run.is_active() and in_start.in_zone(DotTimerZone.Kind.START) and not in_start.pause_checked(s2).ok)
 	_done()
 
 
