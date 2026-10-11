@@ -103,7 +103,7 @@ It adds height above the marked corners for you, because both marks are taken at
 
 ## Documentation
 
-[`docs/`](docs/README.md) has the design reasoning: why a time is a tick count plus two fractions, why the timer depends on nothing but dot-core, what each refusal in `can_record` is defending against, and the four bugs the self-test found.
+[`docs/`](docs/README.md) has the design reasoning: why a time is a tick count plus two fractions, why the timer depends on nothing but dot-core, what each refusal in `can_record` is defending against, and the bugs the suites found, each with how it looked ([history](docs/history.md)).
 
 ## Validating
 
