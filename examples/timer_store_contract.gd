@@ -15,7 +15,7 @@ extends RefCounted
 ## [/codeblock]
 
 ## How many checks [method run] makes, so a caller can count them in.
-const CHECKS := 46
+const CHECKS := 47
 
 const M := &"surf_contract"
 
@@ -190,6 +190,33 @@ func run(store: DotTimerStore, check: Callable) -> void:
 	var precise_best: DotResult = await store.best_for(&"precise_map", 0, &"normal", &"hal")
 	_c("a time keeps every digit, and ranks as itself right after filing", precise_rank.ok and int(precise_rank.value) == 1 and precise_best.ok and precise_best.value is DotTimerRecord and (precise_best.value as DotTimerRecord).time == 25.123456789012345)
 	await store.wipe_map(&"precise_map")
+
+	# The catalogue lists maps by id as text, which is what SQL's ORDER BY gives. Godot
+	# orders StringNames by where they were interned, so a memory store sorting its
+	# StringName keys with sort() listed `!mapsleft` in a different order from the SQL
+	# store, and from itself in the next process. Random lowercase ids, filed out of
+	# order, so neither order can pass by accident; a-z only, so every collation agrees.
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 20261011
+	var filed: Array[String] = []
+	while filed.size() < 20:
+		var id := "order_"
+		for _i in range(6):
+			id += char(97 + rng.randi() % 26)
+		if not filed.has(id):
+			filed.append(id)
+			await store.put_map({"map": id, "tier": 1})
+	var catalogue: DotResult = await store.maps()
+	var in_order: Array[String] = []
+	if catalogue.ok:
+		for row in (catalogue.value as Array):
+			if str(row["map"]).begins_with("order_"):
+				in_order.append(str(row["map"]))
+	var by_text := filed.duplicate()
+	by_text.sort()
+	_c("the catalogue lists maps by id as text", in_order == by_text)
+	for id in filed:
+		await store.wipe_map(StringName(id))
 
 
 func _c(what: String, passed: bool) -> void:

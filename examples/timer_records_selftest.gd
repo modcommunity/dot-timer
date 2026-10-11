@@ -14,7 +14,7 @@ extends Node
 
 const Contract := preload("res://examples/timer_store_contract.gd")
 
-const CHECKS := 181
+const CHECKS := 183
 const SECTIONS := 17
 
 var _passed := 0

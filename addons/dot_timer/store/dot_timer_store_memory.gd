@@ -434,7 +434,9 @@ func map_info(map_id: StringName) -> DotResult:
 func maps() -> DotResult:
 	var out: Array[Dictionary] = []
 	var ids := _maps.keys()
-	ids.sort()
+	# By text, as the SQL store's ORDER BY map: sort() orders these StringName keys by
+	# where they were interned, which differs per process and is not alphabetical.
+	ids.sort_custom(func(x: Variant, y: Variant) -> bool: return str(x) < str(y))
 	for id in ids:
 		out.append((_maps[id] as Dictionary).duplicate(true))
 	return DotResult.success(out)
