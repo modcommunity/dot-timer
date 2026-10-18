@@ -20,13 +20,13 @@ extends Node
 ## — the property under test belongs to [DotTimer], and against a hand-computed path a
 ## failure has exactly one possible cause.
 
-const CHECKS := 312
+const CHECKS := 339
 
 ## Sections entered against sections that ran to their last line, and against this. A
 ## runtime error inside a section aborts that function and nothing says so; a section that
 ## bailed out early after a failed guard is counted as not finished on purpose. The CHECKS
 ## total is the other half — see docs/testing.md.
-const SECTIONS := 34
+const SECTIONS := 35
 
 var _passed := 0
 var _failed := 0
@@ -57,6 +57,7 @@ func _run() -> void:
 	_test_stages_and_splits()
 	_test_stage_navigation()
 	_test_hud_overlay()
+	_test_splits_panel()
 	_test_other_track_ignored()
 	_test_stop_and_death()
 	_test_style_change_abandons()
@@ -1039,6 +1040,177 @@ func _test_hud_overlay() -> void:
 	)
 
 	hud.queue_free()
+	_done()
+
+
+func _splits_run(seconds: float, lines: Array) -> DotTimerRun:
+	# Ticks set directly: the panel reads times, and this keeps the arithmetic exact.
+	var r := DotTimerRun.make(DotTimerTrack.MAIN, &"normal", 1.0 / 128.0)
+	r.begin(0.0)
+	for line: Array in lines:
+		r.ticks = int(float(line[1]) * 128.0)
+		r.mark_stage(int(line[0]), 0.0)
+	r.ticks = int(seconds * 128.0)
+	return r
+
+
+func _test_splits_panel() -> void:
+	_section("the stage-splits panel")
+
+	var panel := DotTimerSplitsPanel.new()
+	panel.size = Vector2(1600.0, 900.0)
+	add_child(panel)
+
+	# Three stage lines, so four sections; JSON-style string keys on purpose.
+	var cmp := {"1": 10.0, "2": 25.0, 3: 40.0}
+	var best := {1: 9.5, 2: 14.0, 3: 14.0, 4: 19.0}
+	panel.set_reference(3, cmp, 60.0, best, "PB")
+
+	_check(panel.section_count == 4 and panel.rows_shown() == 4, "n stage lines give n + 1 rows")
+	_check(
+		panel.label_for(1) == "Stage 1" and panel.label_for(4) == "Finish",
+		"the rows are Stage 1..N and Finish"
+	)
+	_check(panel.mouse_filter == Control.MOUSE_FILTER_IGNORE, "it ignores the mouse")
+
+	# Before anything is reached: the comparison, dim, no deltas.
+	panel.show_run(_splits_run(1.0, []))
+	_check(
+		panel.row_time(1) == "0:10.000" and panel.row_time_colour(1) == panel.dim_colour
+		and panel.row_delta(1) == "",
+		"an unreached row shows the comparison's time, dim",
+		panel.row_time(1)
+	)
+	_check(panel.row_time(4) == "1:00.000", "and the finish row shows the comparison total")
+
+	# Stage 1 at 9 s: 1 s ahead, and a 9 s section beats the best of 9.5.
+	var r := _splits_run(9.0, [[1, 9.0]])
+	panel.show_run(r)
+	_check(
+		panel.row_delta(1) == "-1.000" and panel.row_time(1) == "0:09.000",
+		"a reached row shows this run's time and its delta",
+		panel.row_delta(1)
+	)
+	_check(
+		panel.row_delta_colour(1) == panel.gold_colour,
+		"a section that beat the best segment is gold"
+	)
+
+	# Stage 2 at 27 s: 2 s behind, section 18 s against a best of 14.
+	r = _splits_run(30.0, [[1, 9.0], [2, 27.0]])
+	panel.show_run(r)
+	_check(
+		panel.row_delta(2) == "+2.000" and panel.row_delta_colour(2) == panel.behind_colour,
+		"behind the comparison is red", panel.row_delta(2)
+	)
+	_check(panel.current_section() == 3, "the current section is the one after the last line")
+	_check(
+		panel.row_delta(3) == "" and panel.row_time(3) == "0:40.000",
+		"no live delta on the current row while it is not behind"
+	)
+
+	# 41 s with the 40 s line not yet crossed: now behind, live.
+	panel.show_run(_splits_run(41.0, [[1, 9.0], [2, 27.0]]))
+	_check(
+		panel.row_delta(3) == "+1.000" and panel.row_delta_colour(3) == panel.behind_colour,
+		"once behind, the current row shows a live delta", panel.row_delta(3)
+	)
+	_check(
+		panel.footer_lines()[3].begins_with("Segment") and panel.footer_lines()[3].contains("0:14.000"),
+		"the footer shows the live segment against the best", panel.footer_lines()[3]
+	)
+
+	# Ahead without gold: no previous best to beat.
+	panel.set_reference(3, cmp, 60.0, {})
+	panel.show_run(_splits_run(9.0, [[1, 9.0]]))
+	_check(
+		panel.row_delta_colour(1) == panel.ahead_colour,
+		"ahead without a best to beat is green, not gold"
+	)
+
+	# Finished 1 s over the total.
+	panel.set_reference(3, cmp, 60.0, best)
+	var done := _splits_run(61.0, [[1, 9.0], [2, 27.0], [3, 45.0]])
+	done.finish(0.0)
+	panel.show_run(done)
+	_check(
+		panel.row_time(4) == "1:01.000" and panel.row_delta(4) == "+1.000"
+		and panel.current_section() == 4,
+		"a finished run fills the finish row", panel.row_time(4)
+	)
+
+	# The footer maths: 9.5 + 14 + 14 + 19 = 56.5, and 60 - 56.5 = 3.5.
+	_check_near(panel.sum_of_best(), 56.5, 0.0001, "sum of best is the sum of the sections")
+	_check_near(panel.possible_save(), 3.5, 0.0001, "possible save is the comparison minus it")
+	_check(
+		panel.footer_lines().size() == 4,
+		"all four footer lines are drawn by default"
+	)
+	panel.show_possible_save = false
+	panel.show_segment = false
+	panel.show_run(_splits_run(2.0, []))
+	panel.set_reference(3, cmp, 60.0, best)
+	_check(panel.footer_lines().size() == 2, "footer lines hide individually")
+	panel.show_possible_save = true
+	panel.show_segment = true
+
+	# Missing data: no PB at all, and a hole in the bests.
+	panel.set_reference(3, {}, 0.0, {})
+	panel.show_run(_splits_run(9.0, [[1, 9.0]]))
+	var joined := "|".join(PackedStringArray([
+		panel.row_time(2), panel.row_time(4), panel.row_delta(1), panel.row_delta(2),
+		" ".join(panel.footer_lines()),
+	]))
+	_check(
+		panel.row_time(2) == "-" and panel.row_delta(1) == "-" and not joined.contains("0:00"),
+		"no data shows dashes and never 0:00.000", joined
+	)
+	_check(
+		panel.sum_of_best() < 0.0 and is_nan(panel.possible_save()),
+		"no bests: no sum and no save"
+	)
+	panel.set_reference(3, cmp, 60.0, {1: 9.5, 2: 14.0})
+	_check(panel.sum_of_best() < 0.0, "a sum with a missing section is unknown, not partial")
+
+	# Width: about 220 px at scale 1.
+	_check_near(panel.block_size().x, 220.0, 1.0, "it is about 220 px wide")
+
+	# The window: 20 stage lines, 21 sections, eight rows.
+	var many := {}
+	for k in range(1, 21):
+		many[k] = float(k) * 10.0
+	panel.set_reference(20, many, 210.0, {})
+	panel.show_run(_splits_run(1.0, []))
+	_check(panel.rows_shown() == 8, "a long map shows at most max_rows rows", str(panel.rows_shown()))
+	_check(panel.window_start() == 1, "the window starts at the top")
+	var lines: Array = []
+	for k in range(1, 11):
+		lines.append([k, float(k) * 10.0])
+	panel.show_run(_splits_run(101.0, lines))
+	var start := panel.window_start()
+	_check(
+		start <= panel.current_section() and panel.current_section() <= start + 6,
+		"the window scrolls to keep the current stage visible",
+		"start %d current %d" % [start, panel.current_section()]
+	)
+	lines.clear()
+	for k in range(1, 20):
+		lines.append([k, float(k) * 10.0])
+	panel.show_run(_splits_run(195.0, lines))
+	_check(
+		panel.window_start() + 6 == 20,
+		"near the end the window stops at the last stage line and the finish stays pinned",
+		str(panel.window_start())
+	)
+
+	# No stages: gone.
+	panel.set_reference(0, {}, 0.0, {})
+	_check(
+		not panel.visible and panel.rows_shown() == 0 and panel.block_size() == Vector2.ZERO,
+		"a map without stages hides it entirely"
+	)
+
+	panel.queue_free()
 	_done()
 
 

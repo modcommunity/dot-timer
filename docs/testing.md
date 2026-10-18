@@ -4,7 +4,7 @@ The family's method is in [game-dev/docs/testing.md](../../../docs/testing.md); 
 
 | Suite | What it covers |
 | --- | --- |
-| `examples/timer_selftest.tscn` | the timer: fractions and tick-rate agreement, zones and tracks, effects reaching the host, stages, practice, styles, rules, replays (flags, teleports, run-up and run-out, reaching the disk), the HUD's size, the manager |
+| `examples/timer_selftest.tscn` | the timer: fractions and tick-rate agreement, zones and tracks, effects reaching the host, stages, practice, styles, rules, replays (flags, teleports, run-up and run-out, reaching the disk), the HUD's size, the splits panel (rows, colours, window, dashes, footer maths), the manager |
 | `examples/timer_2d_selftest.tscn` | a whole 2D game in miniature: a `Node2D` world, `DotTimerZoneVolume2D` zones, a body moved by 2D vectors, a run that starts, splits, finishes and files, a replay round-tripped through the 3D container |
 | `examples/timer_records_selftest.tscn` | the records half: the store contract against memory and file stores, points, re-scoring, filing, resume, the file store's flush |
 | `examples/timer_sql_live.tscn` | the store contract and two servers sharing a board, against SQLite, Postgres and MySQL. Run with `../dot-sql/tools/test_live.sh . res://examples/timer_sql_live.tscn` |

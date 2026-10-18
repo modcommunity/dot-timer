@@ -29,7 +29,7 @@ Shaped by the community timer plugins the genre grew up on, rewritten for Godot 
 - **Players**: a profile (rank, points, title, records held, maps done and left, play time), attempts and time spent per map, and a dropped run kept for ten minutes so a player who disconnects mid-run can take it back.
 - **Rules**: start speed caps, time on the ground before a start, no starting while moving up or down, every stage required for a finish to count, validator and checker zones that close a shortcut, pause rules, and runs stopped by no clip or an unexplained teleport.
 - **Practice mode**: `+cp` / `+tp` checkpoints, with the taint rules the genre expects: saving is free, restoring costs you the run.
-- **A HUD**: clock, split against a personal best or the record, speedometer, strafe statistics, the record and your best with your place on the board, and a `[P]` marker on a practised run. No art and no theme, so you style it.
+- **A HUD**: clock, split against a personal best or the record, speedometer, strafe statistics, the record and your best with your place on the board, and a `[P]` marker on a practised run. No art and no theme, so you style it. A staged map also gets `DotTimerSplitsPanel`: a quiet left-edge sidebar with one row per section, the delta against a personal best or the record, gold for a best segment, and sum of best and possible time save.
 - **Configured like a server**, not like a scene: `DotTimerConfig` layers a file, the environment and the command line, and takes its tick rate from `sv_tickrate`.
 - **2D as well as 3D.** The timer works on positions rather than on a controller, so a 2D game passes `Vector3(x, y, 0)` against zones authored with `DotTimerZoneVolume2D`, and files into the same records table a surf server does.
 

@@ -29,8 +29,8 @@ Read the family [CLAUDE.md](../../CLAUDE.md) first; this file is only what is sp
 | `addons/dot_timer/store/` | `DotTimerStore` (abstract, every read awaited), memory, file, SQL |
 | `addons/dot_timer/replay/` | container (quantised, delta-encoded), recorder, player |
 | `addons/dot_timer/net/` | `DotTimerNet`: what replicates, without importing dot-net |
-| `addons/dot_timer/ui/` | `DotTimerHud`: no art |
-| `examples/` | `timer_selftest`, `timer_2d_selftest`, `timer_records_selftest`, `timer_sql_live`, `timer_store_contract.gd`, `hud_preview` (for a screenshot) |
+| `addons/dot_timer/ui/` | `DotTimerHud` and `DotTimerSplitsPanel` (stage-splits sidebar): no art |
+| `examples/` | `timer_selftest`, `timer_2d_selftest`, `timer_records_selftest`, `timer_sql_live`, `timer_store_contract.gd`, `hud_preview`, `splits_preview` (for a screenshot) |
 
 ## Running and testing
 
