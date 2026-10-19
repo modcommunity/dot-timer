@@ -20,11 +20,11 @@ func _ready() -> void:
 
 	var run := DotTimerRun.make(0, &"normal", 1.0 / 128.0)
 	run.begin(0.0)
-	var at := [[1, 11.0], [2, 23.1], [3, 33.2], [4, 47.0]]
+	var at := [[1, 11.0], [2, 21.0], [3, 31.5], [4, 47.0]]
 	for line: Array in at:
 		run.ticks = int(float(line[1]) * 128.0)
 		run.mark_stage(int(line[0]), 0.0)
-	run.ticks = int(58.4 * 128.0)
+	run.ticks = int(70.0 * 128.0)
 
 	var panel := DotTimerSplitsPanel.new()
 	panel.set_anchors_preset(Control.PRESET_FULL_RECT)

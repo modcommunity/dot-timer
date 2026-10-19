@@ -32,8 +32,14 @@ extends Control
 ## is doing well. It ignores the mouse and never takes focus.
 ##
 ## [b]Redraws only on change.[/b] Row text is rebuilt when something a row shows changes
-## (a line crossed, the run changing, the live delta or segment moving by a hundredth)
-## rather than every frame, so a calm run costs a handful of integer compares.
+## (a line crossed, the run changing, a new reference), and between those only the current
+## row's live delta and the footer's live segment are touched, once per hundredth, so a
+## calm run costs a handful of integer compares.
+##
+## [b]A run is compared with the reference it started with.[/b] [method set_reference]
+## called while a run is going, or after it has finished, takes effect when the next run
+## starts (a host that refreshes the records after filing a section or a run needs to do
+## nothing special). With no run, or one that has not started, it applies at once.
 ##
 ## [b]Give it a full-rect Control[/b], as with [DotTimerHud]: the block sits at the left
 ## edge, vertically centred, inside the rect.
@@ -104,6 +110,15 @@ var run: DotTimerRun = null
 var _cmp := PackedFloat64Array()
 var _best := PackedFloat64Array()
 
+# The reference in effect for the run on screen: a copy of _cmp/_best taken when that run
+# started. The host refreshes set_reference after a section is filed (the best for that
+# section is now THIS run's segment) and after the run is filed (the PB is this run), so
+# comparing a run against the live reference compares it with itself: gold would last a
+# frame and a fresh PB would show every row as +0.000. A set_reference that arrives
+# mid-run or after the finish therefore applies to the NEXT run; see _take_snapshot.
+var _snap_cmp := PackedFloat64Array()
+var _snap_best := PackedFloat64Array()
+
 # What each section row shows, rebuilt when the signature below changes.
 var _delta_text := PackedStringArray()
 var _time_text := PackedStringArray()
@@ -122,6 +137,7 @@ var _sig_run: int = 0
 var _sig_stage: int = -1
 var _sig_status: int = -1
 var _sig_live: int = -1
+var _sig_splits: int = 0
 var _sig_version: int = 0
 var _version: int = 0
 
@@ -171,6 +187,11 @@ func set_reference(
 			_best[k] = float(best)
 	if section_count > 0 and comparison_total > 0.0:
 		_cmp[section_count] = comparison_total
+
+	# Applies at once unless a run is under way or just finished; then the run keeps the
+	# reference it started with.
+	if run == null or run.status == DotTimerRun.Status.STOPPED or _snap_cmp.size() != _cmp.size():
+		_take_snapshot()
 
 	_delta_text.resize(section_count + 1)
 	_time_text.resize(section_count + 1)
@@ -300,52 +321,119 @@ func _window_slots() -> int:
 	return clampi(max_rows - 1, 1, maxi(section_count - 1, 1))
 
 
+func _take_snapshot() -> void:
+	_snap_cmp = _cmp.duplicate()
+	_snap_best = _best.duplicate()
+
+
 func _refresh(force: bool) -> void:
 	if section_count <= 0:
 		return
 
 	var stage := 0
 	var status := -1
-	var live_cs := 0
 	var finished := false
 	if run != null:
 		stage = run.stage
 		status = int(run.status)
 		finished = run.status == DotTimerRun.Status.FINISHED
-		if run.is_running():
-			# The live delta and the live segment are the only things that move between
-			# line crossings; hundredths is as fine as they are drawn, so it is as often
-			# as the text can change.
-			live_cs = int(run.time() * 100.0)
-
-	_current = section_count if finished else mini(stage + 1, section_count)
 	var run_id := run.get_instance_id() if run != null else 0
 
-	if (
-		not force and run_id == _sig_run and stage == _sig_stage and status == _sig_status
-		and live_cs == _sig_live and _version == _sig_version
-		and (run == null or run.splits.size() == _sig_splits)
+	# A new run: another object, a stage count that went back, or a start from STOPPED or
+	# FINISHED (a host may restart one object). Pause to resume is the same run.
+	var fresh := run_id != _sig_run or stage < _sig_stage
+	if not fresh and run != null and run.is_running() and (
+		_sig_status == int(DotTimerRun.Status.STOPPED)
+		or _sig_status == int(DotTimerRun.Status.FINISHED)
 	):
+		fresh = true
+	if fresh:
+		_take_snapshot()
+
+	_current = section_count if finished else mini(stage + 1, section_count)
+
+	var splits_n := run.splits.size() if run != null else 0
+	var structural := (
+		force or fresh or stage != _sig_stage or status != _sig_status
+		or _version != _sig_version or splits_n != _sig_splits
+	)
+
+	if structural:
+		_sig_run = run_id
+		_sig_stage = stage
+		_sig_status = status
+		_sig_version = _version
+		_sig_splits = splits_n
+		_sig_live = _live_cs()
+		for k in range(1, section_count + 1):
+			_build_row(k, finished)
+		_build_footer(finished)
+		queue_redraw()
 		return
 
-	_sig_run = run_id
-	_sig_stage = stage
-	_sig_status = status
-	_sig_live = live_cs
-	_sig_version = _version
-	_sig_splits = run.splits.size() if run != null else 0
-
-	for k in range(1, section_count + 1):
-		_build_row(k, finished)
-	_build_footer(finished)
-	queue_redraw()
+	# Between line crossings only the live delta and the live segment move, and only by a
+	# hundredth at a time: touch those two labels and nothing else.
+	var live_cs := _live_cs()
+	if live_cs != _sig_live:
+		_sig_live = live_cs
+		_update_live()
+		queue_redraw()
 
 
-var _sig_splits: int = 0
+# Index of the Segment line in the footer arrays, or -1 when it is not drawn.
+var _seg_idx: int = -1
+var _seg_best_text: String = "-"
+
+
+func _live_cs() -> int:
+	# Hundredths is as fine as the live values are drawn.
+	if run != null and run.is_running():
+		return int(run.time() * 100.0)
+	return 0
+
+
+## The live delta of the current row, shown only once the run is behind the comparison at
+## that line. Sets the row's text and colour; "" when nothing should show.
+func _set_live_delta(k: int) -> void:
+	var cmp := _snap_cmp[k]
+	_delta_text[k] = ""
+	_delta_col[k] = dim_colour
+	if run != null and run.is_running() and cmp > 0.0 and run.time() > cmp:
+		_delta_text[k] = _delta(run.time() - cmp)
+		_delta_col[k] = behind_colour
+
+
+func _update_live() -> void:
+	# The current row is unreached while the run is going (the finish row too).
+	if run != null and run.status != DotTimerRun.Status.FINISHED:
+		_set_live_delta(_current)
+	if _seg_idx >= 0:
+		_footer_right[_seg_idx] = _segment_text()
+		_footer_col[_seg_idx] = _segment_colour()
+
+
+func _segment_live() -> float:
+	if run != null and run.is_running():
+		var from := run.line_time(_current - 1)
+		if from >= 0.0:
+			return run.time() - from
+	return _NONE
+
+
+func _segment_text() -> String:
+	return "%s / %s" % [_fmt(_segment_live()), _seg_best_text]
+
+
+func _segment_colour() -> Color:
+	var live := _segment_live()
+	var best := _snap_best[_current]
+	if live >= 0.0 and best > 0.0 and live > best:
+		return behind_colour
+	return neutral_colour
 
 
 func _build_row(k: int, finished: bool) -> void:
-	var cmp := _cmp[k]
+	var cmp := _snap_cmp[k]
 	var cum := _NONE
 	var seg := _NONE
 	if run != null:
@@ -361,12 +449,8 @@ func _build_row(k: int, finished: bool) -> void:
 		_delta_text[k] = ""
 		_delta_col[k] = dim_colour
 		# Live delta, current row only, only once behind.
-		if (
-			k == _current and run != null and run.is_running() and cmp > 0.0
-			and run.time() > cmp
-		):
-			_delta_text[k] = _delta(run.time() - cmp)
-			_delta_col[k] = behind_colour
+		if k == _current:
+			_set_live_delta(k)
 		return
 
 	_time_text[k] = _fmt(cum)
@@ -377,10 +461,14 @@ func _build_row(k: int, finished: bool) -> void:
 		return
 	var d := cum - cmp
 	_delta_text[k] = _delta(d)
-	_delta_col[k] = ahead_colour if d < 0.0 else behind_colour
+	# Exactly level is neither: red for a tie would say the player did something wrong.
+	_delta_col[k] = neutral_colour if d == 0.0 else (ahead_colour if d < 0.0 else behind_colour)
 	# Gold beats ahead/behind: beating your best segment is the rarer and better news, and
-	# it can happen while still behind overall. Needs a previous best to beat.
-	if seg >= 0.0 and _best[k] > 0.0 and seg < _best[k]:
+	# it can happen while still behind overall. It needs a previous best to beat: with
+	# none, the first time through a section is not a "best segment" story, and every
+	# first run would be gold from top to bottom. The best is the one the run started
+	# with, since the live one already contains this run's segment.
+	if seg >= 0.0 and _snap_best[k] > 0.0 and seg < _snap_best[k]:
 		_delta_col[k] = gold_colour
 
 
@@ -400,17 +488,12 @@ func _build_footer(_finished: bool) -> void:
 			"-" if is_nan(save) else _fmt(save),
 			dim_colour if is_nan(save) else ahead_colour
 		)
+	_seg_idx = -1
 	if show_segment:
-		var best := _best[_current]
-		var live := _NONE
-		if run != null and run.is_running():
-			var from := run.line_time(_current - 1)
-			if from >= 0.0:
-				live = run.time() - from
-		var col := neutral_colour
-		if live >= 0.0 and best > 0.0 and live > best:
-			col = behind_colour
-		_add_footer("Segment", "%s / %s" % [_fmt(live), _fmt(best)], col)
+		var best := _snap_best[_current]
+		_seg_best_text = _fmt(best)
+		_seg_idx = _footer_left.size()
+		_add_footer("Segment", _segment_text(), _segment_colour())
 
 
 func _add_footer(left: String, right: String, col: Color) -> void:
@@ -431,7 +514,8 @@ func _delta(seconds: float) -> String:
 	var text := DotTimerRun.format_time(seconds, true)
 	if absf(seconds) < 60.0:
 		var rest := text.substr(3)
-		if rest.length() > 1 and rest[1] != ".":
+		# Strip the tens digit only when it is a zero: "02.300" is 2.300, "12.300" is not.
+		if rest.length() > 1 and rest[0] == "0" and rest[1] != ".":
 			rest = rest.substr(1)
 		return text.substr(0, 1) + rest
 	return text

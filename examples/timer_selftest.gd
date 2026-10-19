@@ -20,13 +20,13 @@ extends Node
 ## — the property under test belongs to [DotTimer], and against a hand-computed path a
 ## failure has exactly one possible cause.
 
-const CHECKS := 339
+const CHECKS := 357
 
 ## Sections entered against sections that ran to their last line, and against this. A
 ## runtime error inside a section aborts that function and nothing says so; a section that
 ## bailed out early after a failed guard is counted as not finished on purpose. The CHECKS
 ## total is the other half — see docs/testing.md.
-const SECTIONS := 35
+const SECTIONS := 36
 
 var _passed := 0
 var _failed := 0
@@ -58,6 +58,7 @@ func _run() -> void:
 	_test_stage_navigation()
 	_test_hud_overlay()
 	_test_splits_panel()
+	_test_splits_snapshot()
 	_test_other_track_ignored()
 	_test_stop_and_death()
 	_test_style_change_abandons()
@@ -1209,6 +1210,100 @@ func _test_splits_panel() -> void:
 		not panel.visible and panel.rows_shown() == 0 and panel.block_size() == Vector2.ZERO,
 		"a map without stages hides it entirely"
 	)
+
+	panel.queue_free()
+	_done()
+
+
+func _test_splits_snapshot() -> void:
+	_section("the splits panel: delta text, reference snapshot, live updates")
+
+	var panel := DotTimerSplitsPanel.new()
+	panel.size = Vector2(1600.0, 900.0)
+	add_child(panel)
+
+	# 1. The delta keeps the tens digit and drops only a leading zero.
+	_check(panel._delta(0.4) == "+0.400", "delta 0.4", panel._delta(0.4))
+	_check(panel._delta(2.3) == "+2.300", "delta 2.3", panel._delta(2.3))
+	_check(panel._delta(12.3) == "+12.300", "delta 12.3 keeps the tens digit", panel._delta(12.3))
+	_check(panel._delta(59.9) == "+59.900", "delta 59.9", panel._delta(59.9))
+	_check(panel._delta(75.0) == "+1:15.000", "delta 75 is minutes", panel._delta(75.0))
+	_check(panel._delta(-0.4) == "-0.400", "delta -0.4", panel._delta(-0.4))
+	_check(panel._delta(-12.3) == "-12.300", "delta -12.3", panel._delta(-12.3))
+	_check(panel._delta(-75.0) == "-1:15.000", "delta -75", panel._delta(-75.0))
+
+	# 2. A reference refreshed mid-run or after the finish applies to the next run.
+	var cmp := {1: 10.0, 2: 25.0, 3: 40.0}
+	var best := {1: 9.5, 2: 14.0, 3: 14.0, 4: 19.0}
+	panel.set_reference(3, cmp, 60.0, best, "PB")
+	var r := _splits_run(9.0, [[1, 9.0]])
+	panel.show_run(r)
+	_check(panel.row_delta_colour(1) == panel.gold_colour, "gold before the host refreshes")
+	# The host files the section: best for section 1 is now this run's 9.0.
+	panel.set_reference(3, cmp, 60.0, {1: 9.0, 2: 14.0, 3: 14.0, 4: 19.0}, "PB")
+	panel.show_run(r)
+	_check(
+		panel.row_delta_colour(1) == panel.gold_colour and panel.row_delta(1) == "-1.000",
+		"gold survives a mid-run set_reference", panel.row_delta(1)
+	)
+	# The run is filed and becomes the PB: the same splits, total 60.
+	r = _splits_run(60.0, [[1, 9.0], [2, 27.0], [3, 45.0]])
+	panel.show_run(r)
+	r.finish(0.0)
+	panel.show_run(r)
+	var pb := {1: 9.0, 2: 27.0, 3: 45.0}
+	panel.set_reference(3, pb, r.time(), {1: 9.0, 2: 18.0, 3: 18.0, 4: 15.0}, "PB")
+	panel.show_run(r)
+	_check(
+		panel.row_delta(2) == "+2.000" and panel.row_delta_colour(2) == panel.behind_colour,
+		"a finished run keeps its old comparison after the PB is replaced", panel.row_delta(2)
+	)
+	# The next run is compared with the new PB: equal splits are neutral, not behind.
+	var r2 := _splits_run(9.0, [[1, 9.0]])
+	panel.show_run(r2)
+	_check(
+		panel.row_delta(1) == "+0.000" and panel.row_delta_colour(1) == panel.neutral_colour,
+		"a tie is neutral, not behind", panel.row_delta(1)
+	)
+	_check(
+		panel.row_delta_colour(1) != panel.gold_colour,
+		"and the next run is judged against the refreshed bests"
+	)
+	# No previous best, no gold: a first time is not a best segment.
+	panel.set_reference(3, pb, 60.0, {})
+	panel.show_run(_splits_run(8.0, [[1, 8.0]]))
+	_check(panel.row_delta_colour(1) == panel.ahead_colour, "no earlier best means no gold")
+
+	# 3. Between crossings only the live labels are rewritten.
+	panel.set_reference(3, cmp, 60.0, best, "PB")
+	var live := _splits_run(11.0, [])
+	panel.show_run(live)
+	var time_before := panel.row_time(1)
+	var other_before := panel.row_time(2)
+	live.ticks = int(12.0 * 128.0)
+	panel.show_run(live)
+	_check(panel.row_delta(1) == "+2.000", "the current row's live delta moves", panel.row_delta(1))
+	_check(
+		panel.row_time(1) == time_before and panel.row_time(2) == other_before,
+		"and the time columns stay put"
+	)
+	_check(
+		panel.footer_lines()[3].contains("0:12.000"),
+		"the live segment moves with it", panel.footer_lines()[3]
+	)
+
+	# No run at all: set_reference first, then show_run(null), must not error.
+	var bare := DotTimerSplitsPanel.new()
+	bare.size = Vector2(1600.0, 900.0)
+	add_child(bare)
+	bare.set_reference(3, cmp, 60.0, best, "PB")
+	bare.show_run(null)
+	bare.show_run(null)
+	_check(
+		bare.row_time(1) == "0:10.000" and bare.current_section() == 1,
+		"set_reference and show_run(null) work with no run", bare.row_time(1)
+	)
+	bare.queue_free()
 
 	panel.queue_free()
 	_done()
