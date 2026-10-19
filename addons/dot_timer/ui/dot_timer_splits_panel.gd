@@ -48,10 +48,11 @@ const _NONE := -1.0
 @export var neutral_colour: Color = Color(0.92, 0.92, 0.92)
 
 ## Rows not yet reached, and the footer's labels.
-@export var dim_colour: Color = Color(0.92, 0.92, 0.92, 0.5)
+@export var dim_colour: Color = Color(0.92, 0.92, 0.92, 0.62)
 
-## The plate behind the block. Alpha 0 draws none. Translucent so a map shows through.
-@export var panel_colour: Color = Color(0.0, 0.0, 0.0, 0.32)
+## The plate behind the block. Alpha 0 draws none. Translucent so a map shows through,
+## and as dark as the clock block's: lighter, and the dim rows vanish against a bright sky.
+@export var panel_colour: Color = Color(0.0, 0.0, 0.0, 0.45)
 @export_range(0.0, 32.0, 1.0) var panel_radius: float = 5.0
 
 ## Subtle band behind the section being run.
