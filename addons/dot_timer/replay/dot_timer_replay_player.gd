@@ -2,17 +2,7 @@ class_name DotTimerReplayPlayer
 extends RefCounted
 
 ## Plays a [DotTimerReplay] back: seek, scrub, and sample smoothly between frames.
-##
-## [b]Sampled at a time, not stepped per frame.[/b] The obvious implementation
-## advances an index once per rendered frame, which plays a 128 Hz replay at 60 Hz on
-## a 60 Hz monitor — half speed — and at 144 Hz on a 144 Hz one. Asking for "the pose
-## at t seconds" makes playback correct on any display, makes scrubbing and rewinding
-## free, and makes a side-by-side comparison of two replays a matter of sampling both
-## at the same t.
-##
-## [b]Interpolated, and the yaw is interpolated the short way round.[/b] A player
-## turning through 180° has a yaw that wraps, and a naive lerp spins the model the
-## long way round once per lap — which looks exactly like the replay being corrupt.
+## Sampled at a time, not stepped per rendered frame; yaw is interpolated the short way round.
 
 ## The replay being played. Null until [method load_replay].
 var replay: DotTimerReplay = null
@@ -59,10 +49,7 @@ func seek(seconds: float) -> void:
 
 
 ## Advances playback. [param delta] is a frame time, not a tick.
-##
-## This is the one place in the addon that takes a frame delta rather than a tick,
-## and it is correct here: playback is presentation, not simulation, and nothing about
-## it is recorded, compared or ranked.
+## The one place that takes a frame delta: playback is presentation, not simulation.
 func advance(delta: float) -> void:
 	if not playing or replay == null:
 		return
@@ -89,9 +76,7 @@ func advance(delta: float) -> void:
 
 
 ## The pose at the current time, interpolated between frames.
-##
-## Returns null when there is nothing loaded, so a caller can check once rather than
-## guard every field.
+## Null when nothing is loaded, so a caller checks once.
 func sample() -> DotTimerReplay.Frame:
 	return sample_at(time)
 

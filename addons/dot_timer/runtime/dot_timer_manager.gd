@@ -2,28 +2,8 @@
 class_name DotTimerManager
 extends Node
 
-## The component a game adds: a timer per player, the map's zones, the styles, the
-## store and the replay recorder, joined up.
-##
-## [codeblock]
-## var manager := DotTimerManager.new()
-## manager.authoritative = true          # on the server only
-## add_child(manager)
-## manager.load_zones("res://maps/surf_beginner.zones.json")
-##
-## manager.add_player(&"p1", "Christian")
-##
-## # every simulated tick, per player
-## manager.tick_player(&"p1", position, velocity, grounded, alive, yaw, pitch)
-## [/codeblock]
-##
-## [b]One manager, many players — never one per player.[/b] A dedicated server runs
-## thirty at once and they share the zones, the index, the styles and the store. A
-## per-player node would rebuild the spatial index thirty times per map change and
-## give thirty answers to "what is the record here".
-##
-## [b]No autoload, for the family's reason and for one of its own[/b]: a replay viewer
-## runs a second manager over the same map at the same time, and a test runs several.
+## The component a game adds: a timer per player, the map's zones, the styles, the store and the replay recorder, joined up.
+## One manager, many players, no autoload: players share the zones, index, styles and store; a replay viewer runs a second manager.
 
 const CHANNEL := "timer.manager"
 
@@ -42,24 +22,13 @@ signal player_staged(
 )
 
 ## A finished run cleared every rule and reached the store.
-##
-## [param previous] is the player's own best before this run, or null if they had
-## none. [b]It is not necessarily slower[/b]: most finished runs are worse than the
-## player's own record, the store keeps the better one, and the caller wants to know
-## either way so it can say "personal best" or "+2.3 seconds". Compare with
-## [method DotTimerRecord.beats] to tell them apart.
-##
-## [param rank] is the player's position on the board after the write, 1 for first.
+## [param previous] is the player's own best before this run (null if none) and is not necessarily slower; compare with [method DotTimerRecord.beats]. [param rank] is the position after the write.
 signal record_accepted(
 	record: DotTimerRecord, previous: DotTimerRecord, rank: int
 )
 
 ## A finished run was NOT filed, and why.
-##
-## [b]Emitted, not swallowed.[/b] "I finished and nothing happened" is the single most
-## common complaint on a timer server, and the reason is almost always one the player
-## could have been told: an unranked style, a practice checkpoint, a time under the
-## floor.
+## Emitted, not swallowed: "I finished and nothing happened" is the commonest complaint on a timer server and the reason is usually one the player could be told.
 signal record_refused(player_id: StringName, run: DotTimerRun, reason: String)
 
 ## A zone asked for something only the game can do: a teleport, a respawn, a slay.
@@ -68,33 +37,15 @@ signal effect_requested(player_id: StringName, zone: DotTimerZone)
 ## The "while inside" zones in force for a player changed.
 signal effects_changed(player_id: StringName, effects: Dictionary)
 
-## A player asked to be put at a stage. [b]The host moves them.[/b]
-##
-## [param zone] carries [member DotTimerZone.destination] and
-## [member DotTimerZone.destination_yaw]. The run is already stopped by the time this
-## is emitted — see [method request_stage]. Emitted rather than acted on for the same
-## reason [signal effect_requested] is: what "put the player here" means differs
-## between a first-person game, a 2D game and a replay being scrubbed.
+## A player asked to be put at a stage. The host moves them; the run is already stopped (see [method request_stage]).
+## [param zone] carries [member DotTimerZone.destination] and [member DotTimerZone.destination_yaw].
 signal stage_requested(player_id: StringName, number: int, zone: DotTimerZone)
 
 ## The map's zones were replaced.
 signal zones_changed(zones: DotTimerZoneSet)
 
-## Everything a "you finished" message needs, once the run is filed. Emitted after
-## [signal record_accepted], with more in it:
-##
-## [codeblock]
-## {
-##     "player": StringName, "record": DotTimerRecord,
-##     "previous": DotTimerRecord or null,   # their best before
-##     "previous_record": DotTimerRecord or null,  # the board's #1 before
-##     "improved": bool, "first": bool,      # a new personal best; their first finish
-##     "world_record": bool,                 # this run took first place
-##     "rank": int, "total": int,            # where it stands now, of how many
-##     "completions": int,                   # their finishes on this board
-##     "points": float, "title": Dictionary, # what it is worth; their title now
-## }
-## [/codeblock]
+## Everything a "you finished" message needs, once the run is filed. Emitted after [signal record_accepted].
+## Keys: player, record, previous, previous_record, improved, first, world_record, rank, total, completions, points, title.
 signal run_filed(result: Dictionary)
 
 ## A finished run that was NOT filed, with the place it would have taken — the
@@ -125,31 +76,15 @@ signal resume_available(player_id: StringName, state: Dictionary)
 
 @export_group("Role")
 
-## Whether this manager files records.
-##
-## [b]False on a client, and this is a security boundary rather than a preference.[/b]
-## A client runs its own manager so its HUD updates on the tick instead of a round
-## trip later; if that copy could file, a modified client would announce world
-## records. The server's copy is the only one whose runs count.
+## Whether this manager files records. A security boundary, not a preference: false on a client.
+## A client runs its own manager so the HUD updates on the tick; if that copy could file, a modified client would announce world records.
 @export var authoritative: bool = false
 
-## Simulation ticks per second. Must match the host's movement loop.
-##
-## [b]Do not assign this at runtime — call [method set_tick_rate].[/b] Every run in
-## progress is counting in the old rate, and changing the number under them
-## reinterprets ticks already banked: a run half-simulated at 64 and half at 128
-## produces a time that is neither, and files it without an error anywhere.
-##
-## On a server, prefer [method adopt_engine_tick_rate], which takes it from
-## [member Engine.physics_ticks_per_second] — the value dot-server writes from its
-## own [code]sv_tickrate[/code] cvar. One number, in [code]server.cfg[/code], with
-## everything else.
+## Simulation ticks per second. Must match the host's movement loop. Do not assign at runtime: call [method set_tick_rate].
+## On a server prefer [method adopt_engine_tick_rate], which takes the value dot-server writes from [code]sv_tickrate[/code].
 @export_range(1, 1000, 1) var tick_rate: int = 128
 
-## Optional layered configuration. Applied on ready, before anything else.
-##
-## Assign one to configure a timer server from a file, the environment or the command
-## line rather than from exports on a node. See [DotTimerConfig].
+## Optional layered configuration, applied on ready before anything else. See [DotTimerConfig].
 @export var config: DotTimerConfig = null
 
 @export_group("Content")
@@ -163,46 +98,21 @@ signal resume_available(player_id: StringName, state: Dictionary)
 ## Whether finished runs are offered to the store at all.
 @export var record_runs: bool = true
 
-## Whether replays are recorded.
-##
-## Costs memory per player in a run, and most of it is thrown away — see
-## [DotTimerReplayRecorder]. On by default because a timer without replays is half a
-## timer, and off is the right answer for a server with thirty players and 256 MB.
+## Whether replays are recorded. Costs memory per player in a run, most of it thrown away; see [DotTimerReplayRecorder].
 @export var record_replays: bool = true
 
 ## Where kept replays are written. Empty keeps them in memory only.
-##
-## [b]Set from [member DotTimerConfig.replays_directory], and read by nothing until
-## now.[/b] The recorder's memory cap was the same bug one field over — see
-## [DotTimerReplayRecorder] — and this is the half that survived it: a server recorded
-## every run, held the winner in [code]last_replay[/code], and lost it at exit. A
-## records server that cannot show the world-record replay has the feature in name.
-##
-## Only replays of runs the store [i]kept[/i] are written, which is the same set
-## [code]last_replay[/code] already survives to; a replay of a run nothing is keeping
-## is a file nothing will ever open.
+## Only replays of runs the store kept are written; a replay of a run nothing keeps is a file nothing will open.
 @export var replays_directory: String = ""
 
-## Whether practice checkpoints exist at all on this server.
-##
-## [b]The server's switch, and it is not the style's.[/b]
-## [member DotTimerStyle.allow_checkpoints] decides whether a run that used one may
-## still be RANKED; this decides whether the feature is there. They are separate
-## because a ranked style that took practice mode away would be a style nobody could
-## learn the map on — which is the opposite of what a records server wants — while a
-## competition server turning the whole feature off for an evening is a real thing
-## somebody asks for.
+## Whether practice checkpoints exist at all on this server; the server's switch, not the style's.
+## [member DotTimerStyle.allow_checkpoints] decides whether a run that used one may still be RANKED.
 @export var allow_checkpoints: bool = true
 
 @export_group("Wiring")
 
 ## A [DotRegistry] name to find the store under, if it is published there.
-##
-## [b]A registry name rather than a [DotNodeRef][/b], which is the family's usual
-## answer, because a [DotTimerStore] is a [RefCounted] and not a node — it is a
-## database handle, and making it a node so it could be pointed at would put a
-## connection pool in the scene tree. Left empty, [member store] is assigned directly,
-## which is what a server that builds its own does.
+## A name, not a [DotNodeRef]: a [DotTimerStore] is a [RefCounted] database handle, and a node would put a connection pool in the tree.
 @export var store_service: StringName = &""
 
 ## The map's zones.
@@ -336,13 +246,9 @@ func _flush_store(all: bool) -> void:
 		if not all or not store.has_method("has_pending") or not store.call("has_pending") or rounds > 1000:
 			return
 
-# --- Configuration ---------------------------------------------------------
 
 ## Applies a [DotTimerConfig], including its tick rate.
-##
-## Called from [method Node._ready] when [member config] is set; call it again after
-## reloading the file. Safe to call with runs in progress only in the sense that
-## [method set_tick_rate] is — it will abandon them rather than misreport them.
+## Called from [method Node._ready] when [member config] is set; call again after reloading. Abandons runs in progress like [method set_tick_rate].
 func apply_config(p_config: DotTimerConfig) -> DotResult:
 	if p_config == null:
 		return DotResult.fail(DotError.CODE_INVALID, "No configuration.")
@@ -407,16 +313,8 @@ func apply_config(p_config: DotTimerConfig) -> DotResult:
 	return DotResult.success(null)
 
 
-## Sets the tick rate, rebinding every player's timer.
-##
-## [b]Runs in progress are abandoned, and that is the only honest option.[/b] A run is
-## a count of ticks plus the duration one tick represents; change the second and every
-## tick already banked means something different. A run half-counted at 64 and half at
-## 128 produces a time that is neither — and files it, with nothing anywhere to say
-## so. Abandoning costs somebody one attempt; the alternative costs the leaderboard
-## its meaning.
-##
-## Returns false when the rate is unusable or already in force.
+## Sets the tick rate, rebinding every player's timer. Returns false when the rate is unusable or already in force.
+## Runs in progress are abandoned: a run is ticks times a duration, and changing the second changes the meaning of every banked tick.
 func set_tick_rate(rate: int) -> bool:
 	if rate <= 0 or rate == tick_rate:
 		return false
@@ -445,38 +343,19 @@ func set_tick_rate(rate: int) -> bool:
 	return true
 
 
-## Takes the tick rate from the engine, which is what a dot-server sets.
-##
-## [b]The chain this closes:[/b] an operator writes [code]sv_tickrate 128[/code] in
-## [code]server.cfg[/code]; dot-server's [code]_apply_tickrate[/code] writes
-## [member Engine.physics_ticks_per_second]; this reads it; and the rate ends up on
-## every [DotTimerRecord] the server files. Before it, the timer's rate was an export
-## on a node that nobody would think to change, and a server retuned from 64 to 128
-## would have gone on producing times computed against 64 — twice what they should
-## be, on a leaderboard shared with servers that got it right, with no error anywhere.
-##
-## Call it once after the server has applied its own configuration, and again if the
-## server ever changes it.
+## Takes the tick rate from the engine, which is what a dot-server sets. Call once after the server applied its own configuration, and again if it changes it.
 func adopt_engine_tick_rate() -> bool:
 	return set_tick_rate(Engine.physics_ticks_per_second)
 
 
 ## Whether the timer and the engine agree about how fast time passes.
-##
-## [b]Worth checking at boot and saying so loudly.[/b] They disagreeing is the one
-## misconfiguration here that produces plausible, wrong, permanently-filed times
-## instead of an error: a timer counting 128 a second on a server stepping 64 reports
-## every run at twice its length, and nothing about the run looks unusual.
+## Worth checking at boot: disagreement gives plausible, wrong, permanently filed times instead of an error.
 func tick_rate_matches_engine() -> bool:
 	return tick_rate == Engine.physics_ticks_per_second
 
 
-# --- Content ---------------------------------------------------------------
 
-## Replaces the map's zones. Every player's run in progress is abandoned.
-##
-## Abandoned rather than carried, for the reason [method DotTimer.bind] gives: a run
-## begun on one map's zones and finished on another's is a record on neither.
+## Replaces the map's zones. Every player's run in progress is abandoned (see [method DotTimer.bind]).
 func set_zones(set: DotTimerZoneSet) -> DotResult:
 	zones = set
 
@@ -509,10 +388,7 @@ func set_zones(set: DotTimerZoneSet) -> DotResult:
 				"map": String(set.map_id), "problem": problem
 			})
 
-		# Advisory, and checked here because a map change is the moment somebody is
-		# looking: at 128 Hz a player at 40 m/s crosses 31 cm in a tick, and a finish
-		# volume thinner than that is one the fastest players pass straight through
-		# without the run ever ending.
+		# Advisory, and checked on a map change when somebody is looking: a finish thinner than one tick of travel is passed through by the fastest players.
 		var speed := config.fastest_expected_speed if config != null else 40.0
 		var fall := config.fastest_expected_fall_speed if config != null else 0.0
 
@@ -525,17 +401,8 @@ func set_zones(set: DotTimerZoneSet) -> DotResult:
 				],
 			})
 
-	# [b]Only where it is true.[/b] On an authoritative timer a rate that disagrees with
-	# the engine is the one misconfiguration producing plausible wrong times rather than
-	# an error, and it is said at every map change because that is when somebody is
-	# watching.
-	#
-	# On a MIRRORING timer it is neither wrong nor avoidable. A client counts at the
-	# rate the server told it — that is the whole point, and it is what makes a run set
-	# at 128 comparable on a client rendering at 60 — while `physics_ticks_per_second`
-	# there is whatever the host project exported, which the server has no say in and
-	# which a browser build never sets at all. Warning about it told every web client
-	# that every time "this server" files will be wrong, on a client that files none.
+	# Only where it is true: on an authoritative timer a rate that disagrees with the engine gives plausible wrong times, so say so at every map change.
+	# A MIRRORING timer counts at the rate the server told it by design, so the engine rate there is irrelevant and a warning would be false.
 	if authoritative and not tick_rate_matches_engine():
 		DotLog.warn(
 			CHANNEL,
@@ -585,7 +452,6 @@ func styles_in_order() -> Array[DotTimerStyle]:
 	return out
 
 
-# --- Players ---------------------------------------------------------------
 
 func add_player(id: StringName, display_name: String) -> DotResult:
 	if _players.has(id):
@@ -715,14 +581,9 @@ func player_ids() -> Array:
 	return _players.keys()
 
 
-# --- The tick --------------------------------------------------------------
 
 ## Advances one player's timer by one simulated tick.
-##
-## [b]Once per simulated tick, from the movement loop.[/b] Not from
-## [code]_process[/code] and not twice for a replayed tick. A timer sampled per frame
-## counts a different number of ticks on a 144 Hz monitor than on a 60 Hz one, and the
-## player's time then depends on their hardware.
+## Once per simulated tick from the movement loop, never from [code]_process[/code] and not twice for a replayed tick.
 func tick_player(
 	id: StringName,
 	position: Vector3,
@@ -767,20 +628,8 @@ func tick_player(
 			_write_replay(found, record)
 
 
-## Folds movement statistics into a player's current run.
-##
-## Separate from [method tick_player] because not every game measures the same things
-## and a 2D game measures none of them. A first-person game passes
-## [code]controller.stats.to_dictionary()[/code] once when the run ends, or every tick
-## if it wants a live HUD.
-##
-## [b]A FINISHED run accepts them too, and that is the whole point of the method.[/b]
-## The obvious guard is "only while the run is active", and it silently discards the
-## one call that matters: the natural moment to fold in a run's statistics is when it
-## ends, which is exactly when the run is no longer active. game-playground's
-## integration suite caught it as a record whose stats dictionary was empty — no
-## error anywhere, because refusing to write a statistic is a legitimate thing for a
-## timer with no run to do.
+## Folds movement statistics into a player's current run. A FINISHED run accepts them too.
+## Separate from [method tick_player] because a 2D game measures none of them; the natural moment to pass them is when the run ends.
 func note_stats(id: StringName, stats: Dictionary) -> void:
 	var found := player(id)
 
@@ -793,7 +642,6 @@ func note_stats(id: StringName, stats: Dictionary) -> void:
 		run.note_stats(stats)
 
 
-# --- Run lifecycle ---------------------------------------------------------
 
 func _on_started(id: StringName, run: DotTimerRun) -> void:
 	var found := player(id)
@@ -892,10 +740,7 @@ func _file(found: Player, record: DotTimerRecord) -> void:
 	var wrote: DotResult = await store.put(record)
 
 	if not wrote.ok:
-		# ERROR, because this is not a refusal. Whether a run may be filed was decided
-		# by DotTimer.can_record before it got here, and a store never decides that --
-		# so a failed put is a clean, finished run lost to a disk or a service. The
-		# signal tells the player; before this line nothing told the operator.
+		# ERROR, not a refusal: can_record already decided, so a failed put is a clean finished run lost to a disk or service.
 		DotLog.error(CHANNEL, "a finished run could not be stored", {
 			"player": String(record.player_id),
 			"map": String(record.map_id),
@@ -922,17 +767,10 @@ func _file(found: Player, record: DotTimerRecord) -> void:
 	)
 
 	if not improved:
-		# The store kept the old one, which is correct: the run was slower. Still an
-		# acceptance rather than a refusal — the player did finish, cleanly, and the
-		# HUD wants to say by how much they missed. The replay goes, because it is a
-		# replay of a run nothing is keeping.
+		# The store kept the old record because this run was slower; still an acceptance (the HUD shows the gap). The replay goes: nothing keeps it.
 		found.last_replay = null
 	else:
-		# Scored after the write, against the board as it now stands, and the whole
-		# board re-scored when its record moved: every row's worth depends on the
-		# record (and, for PLACEMENT, on everybody's place). Scoring once at filing and
-		# never again left boards whose points said the record was a time it no longer
-		# was.
+		# Scored after the write against the board as it now stands, and the whole board re-scored when its record moved: every row's worth depends on it.
 		await _rescore(record, world_record or points.rescore_on_any_change())
 
 	var rank_result: DotResult = await store.rank_of(
@@ -963,10 +801,7 @@ func _file(found: Player, record: DotTimerRecord) -> void:
 
 
 ## Files section [param section] of a run as its own record, if the run is clean.
-##
-## [b]Clean so far, not clean at the finish[/b]: a section is a complete thing once its
-## second line is crossed, and the flags that disqualify a run are sticky — so a section
-## filed now was clean when it was run, whatever happens later in the attempt.
+## Clean so far, not at the finish: the disqualifying flags are sticky, so a section filed now was clean when it was run.
 func _file_section(found: Player, run: DotTimerRun, section: int) -> void:
 	if store == null or zones == null or not authoritative or not record_runs:
 		return
@@ -1012,12 +847,10 @@ func _on_staged(id: StringName, number: int) -> void:
 	var found := player(id)
 	if found == null:
 		return
-	# Crossing line N completes section N: the stretch from line N - 1 (the start, for
-	# N = 1) to line N.
+	# Crossing line N completes section N: from line N - 1 (the start for the first) to line N.
 	await _file_section(found, found.timer.run, number)
 
 
-# --- Points ------------------------------------------------------------------
 
 ## What [param record] is worth now, written to the store, with the player totals that
 ## depend on it. [param whole_board] re-scores every row on its board.
@@ -1037,9 +870,7 @@ func _rescore(record: DotTimerRecord, whole_board: bool) -> void:
 
 
 ## Re-scores every record on one board and re-totals everybody on it.
-##
-## [param filed] is the record just filed, if any, which gets its new points too — the
-## caller emits it.
+## [param filed] is the record just filed, if any, which gets its new points too.
 func rescore_board(
 	map_id: StringName, track: int, style_id: StringName, filed: DotTimerRecord = null,
 	also_refresh: Array = []
@@ -1155,11 +986,7 @@ func _points_for(record: DotTimerRecord, best: float, rank: int, finishers: int)
 
 
 ## Writes the replay of a run the store kept, if replays are being kept on disk.
-##
-## Failure is logged and swallowed on purpose: the record is already in the store and
-## the run already counted. A full disk must not turn an accepted record into a
-## refused one, and the caller has emitted [signal record_accepted] before this runs.
-## Ends a finished replay's run-out early and writes it if a kept record was waiting for it.
+## Failure is logged and swallowed: a full disk must not turn an accepted record into a refused one.
 func _flush_trail(found: Player) -> void:
 	found.recorder.end_trail()
 	var _done := found.recorder.take_trail_done()
@@ -1197,19 +1024,8 @@ func _write_replay(found: Player, record: DotTimerRecord) -> void:
 	DotLog.info(CHANNEL, "replay written", {"path": path})
 
 
-## Where a record's replay lives, under [member replays_directory].
-##
-## One file per map/track/style/player rather than per run: the store keeps one record
-## per that tuple, so a second file would be a replay of a run the store has already
-## replaced. Overwriting is the correct behaviour.
-##
-## Ids are sanitised through [method DotTimerStoreFile.safe_component], which is the
-## same function the records filename goes through, and deliberately not a second one
-## written here: a player id and a map id both reach this from the wire, so
-## [code]../[/code] in either is a write outside the directory — and substitution is
-## many-to-one, so without that function's hash suffix [code]surf_kitsune2[/code] and
-## [code]surf_kitsune3[/code] would share one replay file. That exact bug cost this
-## addon a leaderboard once; a second sanitiser is how it comes back.
+## Where a record's replay lives, under [member replays_directory]: one file per map/track/style/player, as the store keeps one record per tuple.
+## Ids go through [method DotTimerStoreFile.safe_component], never a second sanitiser: wire ids can carry [code]../[/code] or collide.
 func replay_path(record: DotTimerRecord) -> String:
 	var name := "%s_%d_%s_%s.drp" % [
 		DotTimerStoreFile.safe_component(String(record.map_id)),
@@ -1222,10 +1038,7 @@ func replay_path(record: DotTimerRecord) -> String:
 
 
 ## The map's difficulty tier, 1..10, for the points formula.
-##
-## Read off the zone set's [member DotTimerZoneSet.meta], because a tier is a property
-## of the map that whoever drew the zones is best placed to record, and a game with
-## its own map catalogue overrides this.
+## Read from the zone set's [member DotTimerZoneSet.meta]; a game with its own map catalogue overrides this.
 func map_tier() -> int:
 	if _tier_override > 0:
 		return _tier_override
@@ -1277,7 +1090,6 @@ func _catalogue_map() -> void:
 	await store.put_map(update)
 
 
-# --- Convenience -----------------------------------------------------------
 
 ## Puts a player on a style, abandoning any run in progress.
 func set_player_style(id: StringName, style_id: StringName) -> bool:
@@ -1291,11 +1103,7 @@ func set_player_style(id: StringName, style_id: StringName) -> bool:
 	if style == null:
 		return false
 
-	# The checkpoint set is deliberately NOT cleared or disabled by a style change.
-	# Practice mode is how somebody learns a map, and taking their saved positions
-	# away because they switched to sideways would be taking away the reason they
-	# switched. What the style decides is what using one costs — see
-	# [member DotTimerStyle.allow_checkpoints].
+	# The checkpoint set is NOT cleared by a style change: practice is how a map is learned. The style only decides what using one costs.
 	return found.timer.set_style(style)
 
 
@@ -1310,18 +1118,7 @@ func set_player_track(id: StringName, track: int) -> bool:
 	return found != null and found.timer.set_track(track)
 
 
-# --- Stages ----------------------------------------------------------------
-#
-# The navigation half of a staged map, which is what the timer community's staged maps
-# and Shavit's `sm_stages` / `sm_stagerestart` are. dot-timer has carried stage zones,
-# sub-tick splits and `stage_count` since it was written and NOTHING read any of it:
-# `stage_count` occurred exactly once in the whole family, which is this tree's own
-# mechanical detector for a value produced correctly and consumed by nothing.
-#
-# The timer still does not move anybody. `stage_requested` is emitted for the same
-# reason `effect_requested` is: what "put the player here" means differs between a
-# first-person game, a 2D game and a replay being scrubbed, and an addon that moved a
-# body would be choosing for all three.
+# The navigation half of a staged map. The timer still does not move anybody: `stage_requested` is emitted, as `effect_requested` is, for the host to act on.
 
 
 ## How many stages a track has on the loaded map. 0 for a map without any.
@@ -1339,16 +1136,8 @@ func tracks() -> PackedInt32Array:
 	return zones.playable_tracks() if zones != null else PackedInt32Array()
 
 
-## Puts a player at stage [param number] of the track they are on. Shavit's `!s3`.
-##
-## [b]The run is stopped, not tainted.[/b] A player teleported into the middle of a
-## map has not run the first half of it, and a timer that let that time stand would be
-## filing a record for a run nobody made. Practice checkpoints are the mechanism for
-## "I want to keep my time while I learn this" and they carry their own
-## [member DotTimerRun.used_checkpoints] flag; this is the other thing, and it is not
-## a ranked attempt.
-##
-## Returns the zone the host should move the player to.
+## Puts a player at stage [param number] of the track they are on. Shavit's `!s3`. Returns the zone the host should move the player to.
+## The run is stopped, not tainted: a player teleported mid-map has not run the first half, so no time may stand.
 func request_stage(id: StringName, number: int) -> DotResult:
 	var found := player(id)
 
@@ -1397,10 +1186,7 @@ func request_stage(id: StringName, number: int) -> DotResult:
 
 
 ## Puts a player back at the start of the stage they are on. Shavit's `!rs`.
-##
-## Stage 0 — before the first stage zone — is the start of the track, so this falls
-## back to stage 1 rather than refusing. A player who has not reached a stage yet and
-## asks to restart the stage means the one they are in.
+## Stage 0 is the start of the track, so this falls back to stage 1 rather than refusing.
 func restart_stage(id: StringName) -> DotResult:
 	var found := player(id)
 
@@ -1410,11 +1196,8 @@ func restart_stage(id: StringName) -> DotResult:
 	return request_stage(id, maxi(found.timer.run.stage, 1))
 
 
-## The comparison splits for a player's stage line: their own best on this map,
-## track and style, as [member DotTimerRecord.splits].
-##
-## Empty when there is no store, no record, or no stages — all three of which mean
-## the HUD shows a stage number and no gap, which is correct rather than a failure.
+## The comparison splits for a player's stage line: their own best on this map, track and style, as [member DotTimerRecord.splits].
+## Empty with no store, record or stages; the HUD then shows a stage number and no gap.
 func stage_splits_for(id: StringName, against_record: bool = false) -> Dictionary:
 	var found := player(id)
 
@@ -1448,7 +1231,6 @@ func stage_splits_for(id: StringName, against_record: bool = false) -> Dictionar
 	return best.splits.duplicate(true)
 
 
-# --- Restarting, pausing, resuming -----------------------------------------
 
 ## Stops a player's run and asks the host to put them at the start. `!r`.
 func request_restart(id: StringName) -> DotResult:
@@ -1500,13 +1282,8 @@ func resume_player(id: StringName) -> DotResult:
 	return found.timer.resume_checked()
 
 
-## Gives a returning player back the run they dropped. The run comes back PAUSED;
-## success carries [code]{position, velocity}[/code] for the host to put them at, after
-## which [method resume_player] continues it.
-##
-## [b]Its replay is not kept[/b] — the recorder never saw the first half — and the
-## record says it was resumed ([code]stats.resumed[/code]), so a disputed time can be
-## checked against that.
+## Gives a returning player back the run they dropped. It comes back PAUSED; success carries [code]{position, velocity}[/code], then [method resume_player] continues it.
+## Its replay is not kept (the recorder missed the first half) and the record says it was resumed ([code]stats.resumed[/code]).
 func restore_player(id: StringName) -> DotResult:
 	var found := player(id)
 	if found == null:
@@ -1576,11 +1353,7 @@ static func _vec_from(value: Variant) -> Vector3:
 	return Vector3.ZERO
 
 
-# --- Queries ----------------------------------------------------------------
-#
-# What a `!wr`, a `!profile` or a scoreboard asks. The commands themselves are a game's
-# (see "Things deliberately not here"); these are the answers, so two games' `!rank`
-# cannot disagree about what a rank is.
+# What a `!wr`, a `!profile` or a scoreboard asks. The commands are a game's; these are the answers, so two games' `!rank` cannot disagree.
 
 ## A player's standing: their row, their rank and title, and what they have done.
 func profile(id: StringName, style_id: StringName = &"") -> DotResult:
@@ -1692,13 +1465,8 @@ func section_records(track: int = DotTimerTrack.MAIN, style_id: StringName = &"n
 	return DotResult.success(out)
 
 
-## Minutes a map should run for, judged from how long it takes the people who have
-## finished it. 0 when fewer than five have — not enough to judge, and the server's own
-## default is the honest answer.
-##
-## The average of up to the fastest twenty-five, times enough attempts that a player of
-## average speed gets several goes — more attempts on a short map, where one is cheap —
-## plus five minutes, between twenty and a hundred and twenty, rounded up to ten.
+## Minutes a map should run for, judged from how long the fastest finishers take. 0 when fewer than five have finished.
+## Average of up to the fastest 25 times enough attempts, plus five minutes, clamped to 20..120 and rounded up to ten.
 func suggest_time_limit(track: int = DotTimerTrack.MAIN, style_id: StringName = &"normal") -> DotResult:
 	if store == null or zones == null:
 		return DotResult.fail(DotError.CODE_STATE, "No map or no store.")

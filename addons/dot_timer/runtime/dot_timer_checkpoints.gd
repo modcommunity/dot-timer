@@ -1,33 +1,8 @@
 class_name DotTimerCheckpoints
 extends RefCounted
 
-## Practice mode: save where you are, teleport back to it, and keep trying the bit
-## you cannot do.
-##
-## [b]After the timer itself this is the most-used feature on a surf or bhop
-## server.[/b] A four-minute map with one hard section is four minutes of walking
-## back per attempt without it, and every timer in the genre has had `+cp` / `+tp`
-## bound to a key for fifteen years. Shipping a timer without it is shipping a timer
-## people will not practise on.
-##
-## [codeblock]
-## checkpoints.save(position, velocity, yaw, pitch)   # +cp
-## var cp := checkpoints.load_current()               # +tp
-## if cp != null:
-##     player.teleport_to(cp)
-## [/codeblock]
-##
-## [b]Using one taints the run, and the taint is sticky.[/b] A run in which the player
-## restored a saved position is not a run — [method DotTimer.note_checkpoint_used]
-## either flags it or abandons it, depending on the style — and clearing the flag when
-## they stop would let anybody file a record for the last thirty seconds of a map.
-## This class calls that for you, because a game that had to remember to is a game
-## that will forget on one of its code paths.
-##
-## [b]It stores state, not a node.[/b] The same reasoning as [DotTimerSample]: a
-## checkpoint is a position, a velocity and a view, and what to do with them is the
-## game's — restoring into a [code]DotFpsState[/code], a 2D body or a replay scrubber
-## are three different things and none of them belongs here.
+## Practice mode: save where you are, teleport back to it, and keep trying the bit you cannot do.
+## Stores state, not a node; what to do with a restored checkpoint is the game's. Restoring taints the run via [method DotTimer.note_checkpoint_used].
 
 # No log channel: one player's practice state. Saving and restoring are keypresses, a
 # line per press is noise, and the one consequence that matters -- the run is tainted --
@@ -44,10 +19,7 @@ class Checkpoint extends RefCounted:
 	var pitch: float = 0.0
 
 	## Whether the player was on the ground when it was saved.
-	##
-	## Restored, because a checkpoint taken mid-air and restored as grounded gives a
-	## free landing — and on a surf map "am I on the ground" decides which
-	## acceleration runs on the very next tick.
+	## Restored, because a mid-air checkpoint restored as grounded gives a free landing and picks the next tick's acceleration.
 	var grounded: bool = false
 
 	## Whether they were crouched.
@@ -90,9 +62,7 @@ class Checkpoint extends RefCounted:
 		]
 
 ## The timer this belongs to. Told whenever a checkpoint is restored.
-##
-## Optional: a game with no timer still wants practice teleports, and a class that
-## required one could not serve it.
+## Optional: a game with no timer still wants practice teleports.
 var timer: DotTimer = null
 
 ## The saved checkpoints, oldest first.
@@ -102,11 +72,7 @@ var saved: Array[Checkpoint] = []
 var index: int = 0
 
 ## Most checkpoints one player may hold.
-##
-## [b]Bounded, and lower than it looks.[/b] Thirty is far more than anybody navigates
-## by hand — past about ten, cycling to the one you want takes longer than the section
-## you saved it for — and a player who holds the key spends nothing but memory
-## otherwise.
+## Bounded and lower than it looks: past about ten, cycling to the one you want takes longer than the section.
 var limit: int = 30
 
 ## Whether saving is allowed at all. A ranked style may turn this off entirely.
@@ -128,11 +94,7 @@ func is_empty() -> bool:
 
 
 ## Saves the player's current state as a new checkpoint.
-##
-## [b]Saving does not taint the run; restoring does.[/b] Pressing the save key on the
-## way past a section costs nothing and is what a player does out of habit — punishing
-## it would mean punishing the habit rather than the shortcut, and the shortcut is
-## the teleport.
+## Saving does not taint the run, restoring does: the shortcut is the teleport, not the habit of pressing save.
 func save(
 	position: Vector3,
 	velocity: Vector3,
@@ -176,10 +138,7 @@ func save(
 
 
 ## The checkpoint at [member index], or null.
-##
-## [b]Calling this is what taints the run[/b], because it is what a teleport key
-## calls — the game restores whatever comes back. A caller that only wants to LOOK at
-## a checkpoint uses [method peek].
+## Calling this taints the run, because it is what a teleport key calls; to only LOOK, use [method peek].
 func load_current() -> Checkpoint:
 	var checkpoint := peek()
 
@@ -238,11 +197,7 @@ func next() -> Checkpoint:
 	return saved[index]
 
 
-## Throws them all away.
-##
-## [b]Does not un-taint the run.[/b] The flag is sticky for the whole attempt, and a
-## player who could clear it by clearing their checkpoints would have a one-keypress
-## route to filing a segmented run as a clean one.
+## Throws them all away. Does not un-taint the run: the flag is sticky, or clearing checkpoints would launder a segmented run.
 func clear() -> void:
 	saved.clear()
 	index = 0
@@ -250,10 +205,6 @@ func clear() -> void:
 
 
 ## Serialises the set, so a server can keep it across a map change or a reconnect.
-##
-## Worth keeping: on a hard map somebody spends an evening building a set of
-## checkpoints, and losing them to a map vote is the difference between practising
-## and giving up.
 func to_dictionary() -> Dictionary:
 	var list: Array = []
 

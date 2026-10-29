@@ -2,36 +2,8 @@
 class_name DotTimerHud
 extends Control
 
-## The timer's own HUD: the clock, the split against a comparison, the speedometer,
-## the stage and the strafe statistics — as a compact overlay rather than a panel.
-##
-## [b]No art, and no theme of its own.[/b] The family rule from dot-ui, and it matters
-## more here than usual: a bhop server's HUD is the thing its players stare at for
-## hours, every community restyles it, and a HUD that shipped a look would be fought
-## rather than used. This draws text in the theme it is given and exposes what it
-## draws as properties.
-##
-## [b]Fed, not polled.[/b] It has no reference to a [DotTimerManager] and does not go
-## looking for one. A replay viewer drives the same HUD from a replay; a spectator
-## drives it from another player's run; a test drives it from nothing. Call
-## [method show_run] once per frame with whatever should be on screen.
-##
-## [b]It lays itself out, in a corner of its own rect.[/b] It used to draw a column of
-## lines from the top-left downward at whatever font size it was given, which on a
-## 1600×900 client is a scattered block of grey text down a quarter of the screen —
-## a debug readout rather than a timer. Everything drawn now measures itself, packs
-## into one block, and is placed in [member corner] of [code]Rect2(0, 0, size)[/code]
-## with [member margin] clear of the edge.
-##
-## Two consequences worth knowing:
-##
-## - [b]Give this a full-rect Control, not a small one.[/b] The rect is the area the
-##   block is placed [i]inside[/i], not the block. A host that sizes it 360×200 gets
-##   an overlay pinned to the corner of that 360×200, which is almost certainly not
-##   what it wanted. `set_anchors_preset` does not set offsets — this family has
-##   shipped 0 × 0 `Control`s twice — so set the four offsets as well.
-## - [b]The default corner is the bottom centre[/b], which is where this genre's
-##   players have looked for a clock for fifteen years. Change it, do not fight it.
+## The timer's own HUD: the clock, the split against a comparison, the speedometer, the stage and the strafe statistics, as a compact overlay.
+## No art and no theme; fed by [method show_run] once per frame. Give it a full-rect Control: the block is placed in [member corner] inside the rect.
 
 ## What the clock shows.
 enum Comparison {
@@ -44,12 +16,7 @@ enum Comparison {
 }
 
 ## Where in this Control's rect the block sits.
-##
-## [b]Not called `Corner`.[/b] Godot has a global built-in enum of that name — the one
-## `StyleBox` corner radii are indexed by — and an inner enum shadowing it makes every
-## assignment to a property of this type a parse error reading
-## "Cannot assign a value of type DotTimerHud.Corner as Corner", which points at the
-## assignment rather than at the name.
+## Not named [code]Corner[/code]: that shadows a Godot global enum and every assignment becomes a misleading parse error.
 enum Placement {
 	TOP_LEFT,
 	TOP_CENTRE,
@@ -68,10 +35,7 @@ enum Placement {
 @export var show_stats: bool = true
 @export var show_track: bool = true
 
-## Whether the stage line is drawn on a map that has stages.
-##
-## Drawn as [code]Stage 2 / 5[/code], from [member stage_count]. A map with no stages
-## draws nothing regardless, so this can be left on.
+## Whether the stage line is drawn on a map that has stages, as [code]Stage 2 / 5[/code]. A map without stages draws nothing regardless.
 @export var show_stage: bool = true
 
 ## The standing line: the record, the player's best, and their place on the board.
@@ -87,11 +51,8 @@ enum Placement {
 
 @export_group("Layout")
 
-## Where the block sits in this Control's rect.
-##
-## [b]The bottom centre by default[/b], under the crosshair, which is where every
-## timer in this genre has put its clock. A HUD in the top-left corner competes with
-## the scoreboard, the chat and the kill feed of whatever game hosts it.
+## Where the block sits in this Control's rect. Bottom centre by default, under the crosshair, where this genre puts its clock.
+## A top-left HUD competes with the scoreboard, chat and kill feed of the host game.
 @export var corner: Placement = Placement.BOTTOM_CENTRE
 
 ## How far the block is kept from the edge of the rect, in pixels.
@@ -107,10 +68,7 @@ enum Placement {
 @export_range(0.0, 64.0, 1.0) var field_spacing: float = 14.0
 
 ## Whether the track, style, stage and statistics share one line.
-##
-## [b]On by default, and it is most of why this reads as an overlay.[/b] Those are
-## four short fields; as four lines they are a paragraph, and a player reads a
-## paragraph rather than glancing at it.
+## On by default, and most of why this reads as an overlay: four short fields as four lines are a paragraph.
 @export var compact: bool = true
 
 @export_group("Appearance")
@@ -128,12 +86,7 @@ enum Placement {
 @export var detail_colour: Color = Color(0.72, 0.74, 0.78)
 
 ## The plate drawn behind the block. Alpha 0 draws none.
-##
-## [b]Not art, and not a theme.[/b] A clock drawn as bare text over a bhop map is
-## light grey on light grey the moment the player looks at the sky, and this genre's
-## maps are mostly sky. A translucent plate is the cheapest thing that keeps the one
-## number a player is watching legible against arbitrary geometry; a host that has its
-## own panel sets the alpha to zero.
+## Not art: bare text over a mostly-sky map is unreadable, and a translucent plate is the cheapest fix; a host with its own panel sets alpha to zero.
 @export var panel_colour: Color = Color(0.0, 0.0, 0.0, 0.45)
 
 @export_range(0.0, 32.0, 1.0) var panel_radius: float = 6.0
@@ -153,27 +106,16 @@ var world_record: float = 0.0
 var stats: Dictionary = {}
 var style_name: String = ""
 
-## How many stages the track being run has, or 0 for a map without stages.
-##
-## Set by the host from [method DotTimerZoneSet.stage_count]. It is here because a
-## split with no denominator does not tell a player how much of the map is left, and
-## because until this existed `stage_count` occurred exactly once in this family —
-## a value produced correctly and consumed by nothing, which is the shape most of the
-## bugs in this tree have had.
+## How many stages the track being run has, or 0 for a map without stages. Set by the host from [method DotTimerZoneSet.stage_count].
+## A split with no denominator does not say how much of the map is left.
 var stage_count: int = 0
 
-## The comparison's split at each stage, by stage number, as
-## [method DotTimerRecord.splits] stores them.
-##
-## Set from the same record [member personal_best] came from. With it the stage line
-## shows the gap at the last stage reached rather than only its time, which is the
-## number a player is actually racing.
+## The comparison's split at each stage, by stage number, as [method DotTimerRecord.splits] stores them; set from the same record as [member personal_best].
+## It lets the stage line show the gap at the last stage reached.
 var stage_comparison: Dictionary = {}
 
-## A message shown instead of the clock — "finished", "not ranked", a refusal.
-##
-## Cleared by the next [method show_run] that passes an empty one, so a caller does
-## not have to remember to unset it.
+## A message shown instead of the clock ("finished", "not ranked", a refusal).
+## Cleared by the next [method show_run] that passes an empty one.
 var notice: String = ""
 
 ## The player's place on this board, and how many are on it. 0 = not ranked here.
@@ -217,10 +159,7 @@ func set_comparisons(p_personal_best: float, p_world_record: float) -> void:
 ## comparison record changes, not every frame.
 func set_stage_reference(p_stage_count: int, p_splits: Dictionary = {}) -> void:
 	stage_count = maxi(p_stage_count, 0)
-	# Copied, not adopted. A Dictionary is a reference in GDScript, and handing this
-	# one a record's own splits means the HUD and the record are one object — the
-	# aliasing that put every leaderboard on the server into the last scope anybody
-	# asked for. See DotLeaderboardDef.scoped.
+	# Copied, not adopted: a Dictionary is a reference, so sharing a record's splits would make the HUD and the record one object.
 	stage_comparison = p_splits.duplicate(true)
 	queue_redraw()
 
@@ -256,16 +195,8 @@ func detail_font_size() -> int:
 	return maxi(int(round(float(clock_size) * 0.52)), 9)
 
 
-# --- what is on screen -------------------------------------------------------
-#
-# Built as data first and drawn afterwards, because the block has to be MEASURED
-# before it can be placed: its own width and height decide where its top-left corner
-# goes, and a draw routine that computes positions as it goes cannot know either
-# until it has finished. It is also the only way the plate behind it is the right
-# size, and a plate that is the wrong size is worse than no plate.
-#
-# Each entry is one drawn row: an Array of [text, size, colour] fragments that share
-# a baseline, packed left to right with field_spacing between them.
+# Built as data first and drawn afterwards: the block has to be MEASURED before it can be placed, and the plate needs its size.
+# Each entry is one row, an Array of [text, size, colour] fragments sharing a baseline, packed left to right with field_spacing.
 
 
 func _rows() -> Array:
@@ -350,11 +281,7 @@ func _standing_fragments(small: int) -> Array:
 
 
 ## The stage field: how far through a staged map the run is, and the gap there.
-##
-## Coloured against the comparison's split rather than left neutral, because on a
-## staged map the split at the last stage is the only feedback a player gets between
-## the start and the finish — a stage number on its own says where they are and
-## nothing about how it is going.
+## Coloured against the comparison's split: it is the only feedback between start and finish.
 func _stage_fragment(small: int) -> Array:
 	var reached := run.stage if run != null else 0
 	var text := "Stage %d / %d" % [reached, stage_count]
@@ -488,17 +415,7 @@ func _plate_origin(plate: Vector2) -> Vector2:
 
 
 ## A rounded rectangle, composited ONCE.
-##
-## [b]Not "a rect plus four circles", which is what this was and which visibly did not
-## work.[/b] Translucent shapes that overlap blend twice, so a plate drawn as three
-## rects and four corner circles came out with four dark dots at its corners — the
-## alpha is right everywhere the shapes are disjoint and doubled everywhere they are
-## not. Any decomposition into overlapping pieces has that bug; the fix is to draw one
-## shape.
-##
-## A [StyleBoxFlat] built here from the two exported values, rather than a theme
-## resource, so this is still an addon that ships no art: it has a colour and a radius
-## and nothing a designer would recognise as a style.
+## Not a rect plus four circles: overlapping translucent shapes blend twice and left dark dots at the corners. A [StyleBoxFlat] built here keeps the addon art-free.
 func _draw_rounded(rect: Rect2, radius: float, colour: Color) -> void:
 	if _plate == null:
 		_plate = StyleBoxFlat.new()
@@ -514,14 +431,8 @@ func _draw_rounded(rect: Rect2, radius: float, colour: Color) -> void:
 	draw_style_box(_plate, rect)
 
 
-## Speed shown in the genre's units per second, not metres.
-##
-## [b]Because that is the number this genre thinks in.[/b] Every bhop and surf player
-## knows what 3500 means and none of them know what 35 m/s means; a HUD that showed
-## metres would be converted back by everybody who reads it. One unit is one
-## inch, so the factor is 39.37 — but the maps here are built in metres and the
-## convention that has stuck is 100 units to the metre, which is what
-## [code]speed * 100[/code] is. A game whose scale differs overrides this.
+## Speed shown in the genre's units per second, not metres: [code]speed * 100[/code]. A game whose scale differs overrides this.
+## Bhop and surf players know what 3500 means and not what 35 m/s means.
 func _stats_line() -> String:
 	var parts := PackedStringArray()
 
@@ -550,12 +461,8 @@ func _clock_colour() -> Color:
 			return neutral_colour
 
 
-## The block's size in pixels, for a host laying something out beside it and for a
-## test that wants to know this drew anything at all.
-##
-## Measured the same way [method _draw] measures it, and 0 × 0 when there is nothing
-## on screen. A suite asserting a SIZE is the check this family learned to write after
-## shipping 0 × 0 `Control`s twice — every property was correct both times.
+## The block's size in pixels, for a host laying something out beside it and for a test.
+## Measured as [method _draw] measures it; 0 x 0 when nothing is on screen. A suite asserting a SIZE is what catches 0 x 0 Controls.
 func block_size() -> Vector2:
 	if _font == null:
 		_font = get_theme_default_font()

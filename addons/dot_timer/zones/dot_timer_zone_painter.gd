@@ -1,33 +1,13 @@
 class_name DotTimerZonePainter
 extends RefCounted
 
-## Draws zones from inside the game, with two points and a console command.
-##
-## [b]This is how these maps have actually been made for twenty years.[/b] A surf or
-## bhop map ships as geometry from somebody who is not the server operator, and the
-## zones are added afterwards by an admin standing in the map: walk to one corner,
-## type the command, walk to the other, type it again. The community timers'
-## [code]sm_zones[/code] is exactly this, and a timer without it can only be used on
-## maps whose author happened to be using the same engine.
-##
-## [codeblock]
-## painter.begin(DotTimerZone.Kind.START, DotTimerTrack.MAIN)
-## painter.mark(player_position)     # first corner
-## painter.mark(player_position)     # second corner — and the zone is added
-## [/codeblock]
-##
-## [b]Everything it does is on the server's copy of the set.[/b] Zone editing is an
-## administrative action and the client's copy is a display; a painter that wrote to a
-## client's zones would let a player move their own finish line.
+## Draws zones from inside the game, with two points and a console command, on the server's copy of the set.
+## Zone editing is an administrative action; a painter writing to a client's zones would let a player move their own finish.
 
 const CHANNEL := "timer.painter"
 
 ## Vertical padding added above the marked points, in metres.
-##
-## [b]Because an admin marks corners by standing on them.[/b] Both points are taken at
-## the player's feet, so without this every zone is a flat sheet with no height and
-## nothing ever enters it. This is the single most common mistake when drawing zones
-## by hand, and making the tool add the height removes it.
+## Both points are taken at the player's feet, so without it every zone is a flat sheet nothing enters.
 const DEFAULT_HEIGHT := 3.0
 
 ## Horizontal padding, in metres, so a corner marked slightly inside still encloses it.
@@ -87,10 +67,7 @@ func is_drawing() -> bool:
 
 
 ## Marks a corner. The second mark completes the zone and returns it.
-##
-## Returns a success carrying null for the first corner, and the finished
-## [DotTimerZone] for the second — so a console command can say "corner one, now walk
-## to the other" or "done" from one return value.
+## Returns a success carrying null for the first corner, so a console command can say "corner one" or "done" from one value.
 func mark(at: Vector3) -> DotResult:
 	if zones == null:
 		return DotResult.fail(

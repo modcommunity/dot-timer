@@ -1,16 +1,7 @@
 extends Node
 
-## The records half of dot-timer: the store contract against the memory and file stores,
-## the points formulas and titles, and every rule and flow the manager runs around a
-## finish — rescoring, sections, practice ranks, start rules, stage enforcement, the
-## anti-skip zones, pauses, teleports, resuming a dropped run, auto-restart, and the
-## file store actually reaching the disk.
-##
-## [codeblock]
-## godot --headless --path . res://examples/timer_records_selftest.tscn
-## [/codeblock]
-##
-## The SQL store runs the same contract in `timer_sql_live`, against real databases.
+## The records half of dot-timer: the store contract against memory and file stores, points and titles, and every rule and flow the manager runs around a finish.
+## Run: [code]godot --headless --path . res://examples/timer_records_selftest.tscn[/code]. The SQL store runs the same contract in `timer_sql_live`.
 
 const Contract := preload("res://examples/timer_store_contract.gd")
 
@@ -55,7 +46,6 @@ func _run() -> void:
 	_finish()
 
 
-# --- The contract ------------------------------------------------------------
 
 func _test_contract_memory() -> void:
 	_section("the store contract: memory")
@@ -113,7 +103,6 @@ func _test_file_store_survives_a_restart() -> void:
 	_done()
 
 
-# --- Points ------------------------------------------------------------------
 
 func _test_points_formulas() -> void:
 	_section("points formulas")
@@ -160,7 +149,6 @@ func _test_titles() -> void:
 	_done()
 
 
-# --- The run -----------------------------------------------------------------
 
 func _test_run_sections_and_snapshots() -> void:
 	_section("sections and snapshots")
@@ -200,7 +188,6 @@ func _test_run_sections_and_snapshots() -> void:
 	_done()
 
 
-# --- Filing ------------------------------------------------------------------
 
 func _corridor() -> DotTimerZoneSet:
 	var set := DotTimerZoneSet.new()
@@ -338,7 +325,6 @@ func _test_practice_rank() -> void:
 	_done()
 
 
-# --- Rules -------------------------------------------------------------------
 
 func _timer(style: DotTimerStyle = null) -> DotTimer:
 	var timer := DotTimer.new()
@@ -533,7 +519,6 @@ func _test_noclip_and_teleport() -> void:
 	_done()
 
 
-# --- Resume, restart ----------------------------------------------------------
 
 func _test_resume_after_a_drop() -> void:
 	_section("a dropped run is kept and given back")
@@ -612,7 +597,6 @@ func _test_manager_flushes_the_file_store() -> void:
 	_done()
 
 
-# --- Plumbing ----------------------------------------------------------------
 
 func _section(title: String) -> void:
 	_entered += 1

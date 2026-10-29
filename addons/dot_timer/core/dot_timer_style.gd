@@ -2,18 +2,8 @@
 class_name DotTimerStyle
 extends Resource
 
-## The records half of a style: is it ranked, what are its points worth, what is the
-## shortest run that counts.
-##
-## [b]The other half is [code]DotFpsStyle[/code] in dot-player-controller[/b], and the
-## split is deliberate. Movement belongs where the motor is; records belong where the
-## records are. A game that only wants a timer over its own movement does not have to
-## install a first-person controller to get one, and a 2D game — which cannot use
-## [code]DotFpsStyle[/code] at all — still gets styles.
-##
-## The two are paired by [member id]. Nothing enforces the pairing, because enforcing
-## it would mean this file mentioning a class that may not exist, which in GDScript
-## takes the whole addon down with it.
+## The records half of a style: is it ranked, what are its points worth, what is the shortest run that counts.
+## Paired with [code]DotFpsStyle[/code] (movement, in dot-player-controller) by [member id]; nothing enforces the pairing.
 
 @export var id: StringName = &"normal"
 
@@ -32,11 +22,7 @@ extends Resource
 @export_group("Ranking")
 
 ## Whether runs on this style are recorded at all.
-##
-## Off for a joke style, a testing style, or one whose movement makes the map
-## trivial. An unranked style still times, splits and shows a HUD — it simply does
-## not file anything, and telling the player that up front is much better than
-## silently discarding their record.
+## An unranked style still times, splits and shows a HUD; telling the player up front beats silently discarding a record.
 @export var ranked: bool = true
 
 ## Multiplier on the points a completion is worth.
@@ -45,11 +31,7 @@ extends Resource
 @export_range(0.0, 10.0, 0.01) var points_multiplier: float = 1.0
 
 ## The shortest run that may be recorded on a main track, in seconds.
-##
-## [b]An anti-cheat measure, not a nicety.[/b] The classic exploit is to place the
-## start and finish zones close enough to touch — or find a spot where a teleport
-## crosses both — and file a 0.02 second world record that nothing can beat. A floor
-## makes that record impossible rather than merely suspicious.
+## An anti-cheat measure: touching start and finish zones would otherwise allow an unbeatable 0.02 second world record.
 @export_range(0.0, 600.0, 0.01) var minimum_time: float = 3.5
 
 ## The same for a bonus track, which is legitimately much shorter.
@@ -61,26 +43,11 @@ extends Resource
 @export_group("Rules")
 
 ## Whether a run that used a practice checkpoint may still be ranked.
-##
-## [b]This is about the RECORD, not about the feature.[/b] Practice mode is always
-## available — that is the point of it, and a timer that took it away on a ranked
-## style would be a timer nobody could learn a map on. What this decides is what
-## happens to the run: off, restoring a checkpoint abandons it, because continuing
-## to time a run that can never be filed wastes the player's next four minutes; on,
-## the run keeps going and is filed with [member DotTimerRun.used_checkpoints] set.
-##
-## Off for every normal style: saving and restoring a position is the whole of the
-## difficulty on some maps. A "segmented" style turns it on and ranks separately.
-##
-## Whether practice mode exists at all is the server's,
-## [member DotTimerManager.allow_checkpoints].
+## Off: restoring a checkpoint abandons the run. On: it continues and is filed with [member DotTimerRun.used_checkpoints] set.
 @export var allow_checkpoints: bool = false
 
-## Whether the timer may run while the player is not touching the ground at the start.
-##
-## The familiar [code]startinair[/code]. Off means leaving the start zone airborne does
-## not begin the run, which stops a player building speed outside it and diving
-## through.
+## Whether the timer may run while the player is not on the ground at the start.
+## Off: leaving the start airborne does not begin the run, which stops speed being built outside it.
 @export var allow_air_start: bool = false
 
 ## Seconds a run may be paused for before it is abandoned. 0 = no limit.
@@ -88,33 +55,20 @@ extends Resource
 
 @export_group("Start")
 
-## Seconds the player must have been on the ground before the run may begin.
-##
-## Stops a run begun mid-bunny-hop: a player who lands in the start zone and jumps
-## straight out carries speed the start was meant to take away. Judged on the last time
-## they were grounded, so walking out after standing still always counts. 0 = no rule.
+## Seconds the player must have been on the ground before the run may begin; 0 = no rule.
+## Judged on the last time they were grounded, so walking out after standing still always counts.
 @export_range(0.0, 5.0, 0.05) var start_ground_seconds: float = 0.0
 
 ## Refuse to begin a run while the player is moving up or down.
-##
-## A ramp or a jump pad beside the start line hands out vertical speed a flat start
-## does not, and on some maps that is the whole route. Off by default; a map's start
-## zone can carry the rule instead (payload [code]"no_vertical": true[/code]).
+## A start zone can carry the rule instead (payload [code]"no_vertical": true[/code]).
 @export var refuse_vertical_start: bool = false
 
 ## Horizontal speed above which leaving the start does not begin a run, m/s. 0 = none.
-##
-## [b]A refusal, not a clamp.[/b] Clamping the player's speed happens inside the
-## simulation ([method DotTimerRules.clamp_prespeed], called by the host on both machines
-## on the same tick) and is a movement rule; this is the records rule behind it — a run
-## that left too fast is not a run on this style, whatever the movement did. A start
-## zone's payload [code]"prespeed"[/code] overrides it for that zone.
+## A refusal, not a clamp: the clamp is [method DotTimerRules.clamp_prespeed]. A start zone's payload [code]"prespeed"[/code] overrides it.
 @export_range(0.0, 200.0, 0.1) var start_speed_cap: float = 0.0
 
 ## Speed below which every start rule is waived, m/s.
-##
-## A floating bonus start, or one on a moving platform, has the player leaving it with a
-## little speed nobody could avoid; refusing those would make the bonus impossible.
+## A floating bonus start or a moving platform leaves the player a little unavoidable speed.
 @export_range(0.0, 10.0, 0.1) var start_rules_below: float = 1.0
 
 ## Seconds of run time per second played. 1 for every normal style; 0.5 for a
@@ -124,16 +78,7 @@ extends Resource
 
 
 ## The points a completion is worth, before the multiplier.
-##
-## [b]The shape of this formula is the whole of a ranking system's politics.[/b] Ranks
-## by raw time reward whoever plays the easiest map; ranks by placement reward whoever
-## plays the emptiest one. This is the compromise the genre settled on: points are the
-## map's own tier weight scaled by how close the run is to the record on it, so
-## finishing a hard map slowly is worth more than finishing an easy map perfectly, and
-## improving a run always pays something.
-##
-## [param tier] is the map's difficulty, 1..10. [param record_time] is the best time
-## on the same map, track and style, or 0 if this run IS the record.
+## [param tier] is the map's difficulty, 1..10; [param record_time] is the board's best, or 0 if this run IS the record.
 func points_for(
 	time_seconds: float,
 	tier: int,
@@ -216,12 +161,8 @@ static func from_dictionary(data: Dictionary) -> DotTimerStyle:
 	return style
 
 
-## The ranking half of the styles [code]DotFpsStyle.defaults()[/code] ships, paired
-## by id.
-##
-## The multipliers are the genre's conventional weights: sideways and backwards are
-## much harder than normal and are worth roughly double, half-sideways sits between,
-## and low gravity is easier and is worth less.
+## The ranking half of the styles [code]DotFpsStyle.defaults()[/code] ships, paired by id.
+## Multipliers are the genre's conventional weights: sideways and backwards about double, low gravity less.
 static func defaults() -> Array[DotTimerStyle]:
 	var table := [
 		[&"normal", "Normal", "N", "#ffffff", 1.0, 0],

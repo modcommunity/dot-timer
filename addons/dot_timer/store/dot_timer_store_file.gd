@@ -1,29 +1,8 @@
 class_name DotTimerStoreFile
 extends DotTimerStoreMemory
 
-## Records in JSON files under a directory, one file per board.
-##
-## [b]A file per board, not one file for everything.[/b] A busy server holds records
-## for hundreds of maps across six styles and nine tracks; rewriting all of them
-## because somebody finished one is both slow and the thing that loses the lot when
-## the process is killed halfway through. One board is a few kilobytes and is written
-## atomically.
-##
-## [b]Extends the in-memory store rather than reimplementing it.[/b] The sorting, the
-## "did it beat the previous", the ranking — all of that is the same code, and a
-## second copy of it is a second place for the comparison to be the wrong way round.
-## This adds loading, saving and a write budget.
-##
-## [b]Everything else is five small files beside the boards[/b] — players, maps,
-## history, progress and saved runs — each written whole and atomically, like a board.
-## Their names begin with an underscore, which no board file's can (a board file is
-## [code]map.track.style.json[/code], and a map id cannot be empty).
-##
-## [b]Not for a server with thousands of players.[/b] It reads a whole board to answer
-## a query and writes a whole board to file a record, which is correct and is O(board);
-## and a profile or a points re-total reads every board on disk once. Past a few
-## thousand rows, use [DotTimerStoreSql] — the interface is the same and nothing above
-## it changes.
+## Records in JSON files under a directory, one file per board, written atomically; side tables are underscore-prefixed files.
+## Extends the memory store for the shared logic. Not for thousands of players: it reads and writes a whole board; use [DotTimerStoreSql].
 
 const FILE_CHANNEL := "timer.store.file"
 
@@ -31,10 +10,7 @@ const FILE_CHANNEL := "timer.store.file"
 var directory: String = "user://records"
 
 ## Boards written per [method flush] before the rest wait for the next one.
-##
-## Bounded because a map change can dirty every board on the map at once, and writing
-## forty files inside one frame is a stall a player feels. What is left stays dirty
-## and goes on the next flush.
+## Bounded because a map change can dirty every board at once; the rest stay dirty for the next flush.
 var flush_batch: int = 16
 
 ## Boards changed since the last flush: board key -> [map, track, style, stage].
@@ -63,11 +39,7 @@ static func at(path: String) -> DotTimerStoreFile:
 
 
 ## The file a board lives in.
-##
-## [b]Every component is sanitised, not just checked.[/b] A map id arrives from a
-## content manifest and a style id from a config file, and either could contain a
-## slash or a [code]..[/code] — which without this writes a records file wherever the
-## attacker liked.
+## Every component is sanitised, not just checked: map and style ids arrive from a manifest or config and could carry a slash or [code]..[/code].
 func path_for(
 	map_id: StringName, track: int, style_id: StringName, stage: int = 0
 ) -> String:
@@ -91,28 +63,7 @@ const SAFE_CHARS := (
 
 
 ## A path component that cannot escape [member directory] and cannot collide.
-##
-## [b]Public, and the only one in this addon[/b] — [DotTimerManager] builds replay
-## filenames out of the same wire-supplied ids and calls this rather than growing a
-## second sanitiser. Two of them is how one gets the hash suffix and the other does
-## not, and the one that does not silently merges two maps into one file.
-##
-## [b]An explicit alphabet, and not [method String.is_valid_identifier].[/b] That
-## method answers "is this a legal GDScript identifier", and an identifier may not
-## BEGIN with a digit — so on a single character it is false for every digit, and
-## using it here replaced every digit in a map id with an underscore. In a genre
-## whose maps are called [code]surf_kitsune2[/code] and [code]bhop_arcane_v3[/code]
-## that is not a cosmetic bug: [code]surf_kitsune2[/code] and
-## [code]surf_kitsune3[/code] both became [code]surf_kitsune_[/code] and shared one
-## records file, silently, with two maps' times merged into one leaderboard.
-##
-## [b]The hash suffix is what makes a collision impossible[/b] rather than merely
-## unlikely. Substitution is many-to-one by construction — any two ids differing only
-## in characters this replaces map to the same string — so when sanitising changed
-## anything, eight hex characters of the ORIGINAL id go on the end. Two different ids
-## then always have different files, and an id that needed no substitution keeps its
-## plain readable name, which is what a server operator looking in the directory
-## wants.
+## Public and the only sanitiser here: [DotTimerManager] uses it for replay names. Explicit alphabet; a hash of the original id is appended whenever anything was replaced.
 static func safe_component(text: String) -> String:
 	var out := ""
 
@@ -120,10 +71,7 @@ static func safe_component(text: String) -> String:
 		var c := text[i]
 		out += c if SAFE_CHARS.contains(c) else "_"
 
-	# A leading dot is the one surviving substitution that means something to a
-	# filesystem: `..` is a directory and `.name` is hidden. Neither can traverse
-	# once every separator has been replaced, but a records file nobody can see in
-	# `ls` is a support question nobody enjoys.
+	# A leading dot is replaced: `..` and `.name` mean something to a filesystem, and a hidden records file is a support question.
 	while out.begins_with("."):
 		out = "_" + out.substr(1)
 
@@ -137,9 +85,7 @@ static func safe_component(text: String) -> String:
 
 
 ## Reads a board off disk if it has not been read yet.
-##
-## [b]Lazy, per board.[/b] A server with four hundred maps installed would otherwise
-## read four hundred files at boot to serve the one map it is running.
+## Lazy per board: a server with four hundred maps installed would otherwise read four hundred files at boot.
 func _ensure_loaded(
 	map_id: StringName, track: int, style_id: StringName, stage: int = 0
 ) -> void:
@@ -257,7 +203,6 @@ func _mark(record_or_parts: Variant) -> void:
 		_dirty[r.board_key()] = [r.map_id, r.track, r.style_id, r.stage]
 
 
-# --- Boards ----------------------------------------------------------------
 
 func put(record: DotTimerRecord) -> DotResult:
 	if record == null:
@@ -420,7 +365,6 @@ func _delete_board_file(parts: Array) -> void:
 		DotWeb.sync_filesystem()
 
 
-# --- Side tables -----------------------------------------------------------
 
 func note_player(
 	player_id: StringName, name: String, seen_at: int, playtime_add: float = 0.0
@@ -514,7 +458,6 @@ func peek_best(
 	return super.peek_best(map_id, track, style_id, player_id, stage)
 
 
-# --- Writing ---------------------------------------------------------------
 
 ## Whether anything changed since the last flush.
 func has_pending() -> bool:
@@ -526,12 +469,7 @@ func pending_count() -> int:
 
 
 ## Writes up to [member flush_batch] dirty boards, then the side files.
-##
-## [b]Called by [DotTimerManager][/b] on its own interval and when it leaves the tree.
-## Until 2026-10-08 nothing called it at all: a server configured with a records
-## directory created this store, filed every record into its memory half, and wrote
-## nothing — so every record was lost at the next restart, with no error, because a
-## record in memory reads back exactly like a record on disk until the process ends.
+## Called by [DotTimerManager] on its own interval and when it leaves the tree; a record in memory reads back like one on disk until the process ends.
 func flush() -> DotResult:
 	if not has_pending():
 		return DotResult.success(0)
@@ -622,9 +560,7 @@ func _write_extra(name: String) -> DotResult:
 ## server that cannot be regenerated, and a process killed mid-write must leave the
 ## previous version intact.
 func _write_json(path: String, data: Dictionary) -> DotResult:
-	# An empty directory makes every path relative, and a relative path resolves against
-	# the process's working directory: a stray `_maps.json` in a game's project root
-	# (game-g2gfast, 2026-10-08). "No files" is a memory store, never this one.
+	# An empty directory makes every path relative to the working directory (a stray `_maps.json` in a project root). "No files" is a memory store, never this one.
 	if directory.strip_edges() == "":
 		return DotResult.failure(DotError.from_engine(ERR_INVALID_PARAMETER, "DotTimerStoreFile.directory is empty"))
 	if not DirAccess.dir_exists_absolute(directory):

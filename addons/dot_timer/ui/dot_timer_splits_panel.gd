@@ -2,47 +2,8 @@
 class_name DotTimerSplitsPanel
 extends Control
 
-## A stage-splits sidebar for a staged map, in the style of a speedrun splits panel that
-## has been told to keep quiet: one row per section, the delta against a comparison, the
-## time, and a short footer of sum of best and possible time save.
-##
-## [b]Fed, not polled, and fed twice.[/b] Like [DotTimerHud] it holds no reference to a
-## manager or a store. A host calls [method set_reference] when the map, the comparison or
-## the records change, and [method show_run] once per frame. The split is that the first
-## is data the store produces slowly (it is awaited, and a client may not have it at all)
-## and the second is the live run; a panel that fetched either itself would have to know
-## which store the host uses.
-##
-## [b]Sections, not lines.[/b] A map with [code]n[/code] stage lines has [code]n + 1[/code]
-## sections: the rows are those, and the last one ends at the finish. A row's time is the
-## CUMULATIVE time at its end (what [method DotTimerRun.split_time] and
-## [member DotTimerRecord.splits] hold), because that is the number the comparison is
-## stored as and the one a player reads against the clock; the per-section time only
-## decides gold and the footer.
-##
-## [b]The last row is called "Finish", not "Stage N+1".[/b] There is no stage zone N+1:
-## a player can request stage 1..N (see [method DotTimerManager.request_stage]) and the
-## finish is a different kind of line. Naming it a stage would also promise a teleport
-## that does not exist.
-##
-## [b]Quiet on purpose.[/b] The plate is translucent and about 220 px wide, the type is
-## small, and a row that has not been reached shows the comparison's time dimmed. The live
-## delta appears on the current row only once the run is [i]behind[/i] the comparison's time
-## at that line, which is how split timers avoid a number flashing the whole time a player
-## is doing well. It ignores the mouse and never takes focus.
-##
-## [b]Redraws only on change.[/b] Row text is rebuilt when something a row shows changes
-## (a line crossed, the run changing, a new reference), and between those only the current
-## row's live delta and the footer's live segment are touched, once per hundredth, so a
-## calm run costs a handful of integer compares.
-##
-## [b]A run is compared with the reference it started with.[/b] [method set_reference]
-## called while a run is going, or after it has finished, takes effect when the next run
-## starts (a host that refreshes the records after filing a section or a run needs to do
-## nothing special). With no run, or one that has not started, it applies at once.
-##
-## [b]Give it a full-rect Control[/b], as with [DotTimerHud]: the block sits at the left
-## edge, vertically centred, inside the rect.
+## A stage-splits sidebar for a staged map: one row per section, the delta against a comparison, the time, and a footer of sum of best and possible time save.
+## Fed, not polled: the host calls [method set_reference] on change and [method show_run] once per frame. Give it a full-rect Control.
 
 ## What a section was compared with, for the colour of a finished row.
 const _NONE := -1.0
@@ -110,12 +71,7 @@ var run: DotTimerRun = null
 var _cmp := PackedFloat64Array()
 var _best := PackedFloat64Array()
 
-# The reference in effect for the run on screen: a copy of _cmp/_best taken when that run
-# started. The host refreshes set_reference after a section is filed (the best for that
-# section is now THIS run's segment) and after the run is filed (the PB is this run), so
-# comparing a run against the live reference compares it with itself: gold would last a
-# frame and a fresh PB would show every row as +0.000. A set_reference that arrives
-# mid-run or after the finish therefore applies to the NEXT run; see _take_snapshot.
+# The reference in effect for the run on screen: a copy of _cmp/_best taken when that run started, so a refresh after filing does not compare a run with itself (see _take_snapshot).
 var _snap_cmp := PackedFloat64Array()
 var _snap_best := PackedFloat64Array()
 
@@ -148,19 +104,8 @@ func _ready() -> void:
 	set_process(false)
 
 
-## Sets what the panel compares against. Call when the map, the comparison or the records
-## change, not every frame.
-##
-## [param stage_count] is the number of stage LINES; 0 hides the panel entirely.
-## [param comparison_splits] is cumulative time by stage number, as
-## [method DotTimerManager.stage_splits_for] returns it (int or string keys both work, JSON
-## gives strings). [param comparison_total] is the finish time of the same record, 0 for
-## none. [param best_sections] is the player's best time for each SECTION (1..n+1), as
-## [code]store.peek_best(map, track, style, player, section).time[/code]; sections with no
-## best are simply absent. [param label] names the footer line.
-##
-## Everything is copied into packed arrays: a Dictionary is a reference, and sharing the
-## record's own splits with a panel is the aliasing bug this family has had before.
+## Sets what the panel compares against. Call when the map, the comparison or the records change, not every frame.
+## [param stage_count] is the number of stage LINES (0 hides the panel); splits are cumulative by stage number; everything is copied, since a Dictionary is a reference.
 func set_reference(
 	stage_count: int,
 	comparison_splits: Dictionary,
@@ -313,7 +258,6 @@ func describe() -> Dictionary:
 	}
 
 
-# --- state -----------------------------------------------------------------
 
 
 ## Window slots for non-finish rows: max_rows minus the pinned finish.
@@ -463,11 +407,7 @@ func _build_row(k: int, finished: bool) -> void:
 	_delta_text[k] = _delta(d)
 	# Exactly level is neither: red for a tie would say the player did something wrong.
 	_delta_col[k] = neutral_colour if d == 0.0 else (ahead_colour if d < 0.0 else behind_colour)
-	# Gold beats ahead/behind: beating your best segment is the rarer and better news, and
-	# it can happen while still behind overall. It needs a previous best to beat: with
-	# none, the first time through a section is not a "best segment" story, and every
-	# first run would be gold from top to bottom. The best is the one the run started
-	# with, since the live one already contains this run's segment.
+	# Gold beats ahead/behind, and needs a previous best to beat (else every first run is gold); the best is the one the run started with, since the live one holds this run.
 	if seg >= 0.0 and _snap_best[k] > 0.0 and seg < _snap_best[k]:
 		_delta_col[k] = gold_colour
 
@@ -529,7 +469,6 @@ static func _lookup(data: Dictionary, k: int) -> Variant:
 	return null
 
 
-# --- drawing ---------------------------------------------------------------
 
 
 func _scale() -> float:

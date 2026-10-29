@@ -1,31 +1,7 @@
 extends Node2D
 
-## Proves the timer works in 2D, end to end, with nothing 3D anywhere in it.
-##
-## [codeblock]
-## godot --headless --path . res://examples/timer_2d_selftest.tscn
-## [/codeblock]
-##
-## [b]The claim under test is the one that decides whether this addon is worth
-## having twice.[/b] dot-timer says it is dimension-agnostic — the same timer, the
-## same records, the same replay format and the same leaderboard for a 3D surf map
-## and a 2D racing course — and that claim is easy to make and easy to be wrong
-## about. So this file is a whole 2D game in miniature: a `Node2D` world, zones
-## authored as `DotTimerZoneVolume2D` nodes in a scene, a body moved by 2D vectors,
-## and a run that starts, splits, finishes and files a record.
-##
-## Nothing here mentions [Vector3] except where the sample demands one, which is
-## exactly what a 2D game has to write:
-##
-## [codeblock]
-## sample.position = Vector3(body.position.x, body.position.y, 0.0)
-## [/codeblock]
-##
-## [b]The trap this exists to catch is the third axis.[/b] A rectangle drawn in the
-## 2D editor has zero thickness on Z, and a box with zero thickness contains nothing
-## at all — so a zone authored the obvious way never fires, silently, with no error.
-## [method DotTimerZone.flatten_for_2d] is what fixes it and
-## [DotTimerZoneVolume2D] is what applies it, and both are checked here.
+## Proves the timer works in 2D, end to end, with nothing 3D in it: zones as [DotTimerZoneVolume2D] nodes, a body moved by 2D vectors, a run that files a record.
+## Run: [code]godot --headless --path . res://examples/timer_2d_selftest.tscn[/code]. The trap it exists for is the third axis; see [method DotTimerZone.flatten_for_2d].
 
 ## The host's own units. A 2D game's "metres" are pixels, and the timer does not
 ## care — but the numbers below have to be self-consistent for the expected times
@@ -41,10 +17,8 @@ const FINISH_W := 100.0
 
 const CHECKS := 27
 
-## Sections entered against sections that ran to their last line, and against this. A
-## runtime error inside a section aborts that function and nothing says so; a section that
-## bailed out early after a failed guard is counted as not finished on purpose. The CHECKS
-## total is the other half — see docs/testing.md.
+## Sections entered against sections that ran to their last line, and against this. A runtime error aborts a section silently;
+## a section that bailed out early is counted as not finished on purpose. The CHECKS total is the other half; see docs/testing.md.
 const SECTIONS := 4
 
 var _passed := 0
@@ -124,9 +98,7 @@ func _check_near(
 
 
 ## Builds the course as a tree of [DotTimerZoneVolume2D] nodes, then collects it.
-##
-## Built in code here because this is a test; a real 2D game places these nodes in
-## the editor and calls the same [method DotTimerZoneVolume2D.collect].
+## Built in code because this is a test; a real 2D game places the nodes in the editor.
 func _build_course() -> Node2D:
 	var course := Node2D.new()
 	course.name = "Course"

@@ -1,21 +1,8 @@
 class_name DotTimerRecord
 extends RefCounted
 
-## A finished run, as it is stored, sorted, sent and compared.
-##
-## [b]The identity of a record is (map, track, style, player).[/b] Everything a
-## leaderboard does — "the record for this map", "my best", "am I first" — is a query
-## over those four, which is why they are separate fields rather than a composite key
-## somebody has to parse. [method key] builds the composite when a store needs one.
-##
-## [b]Times are seconds, and the tickrate they were measured at is stored beside
-## them.[/b] Not because anything divides by it, but because a record whose provenance
-## cannot be established is a record nobody can defend when it is disputed — and in
-## this genre records are disputed. The same reasoning puts the zone fingerprint here:
-## if the finish line moves, every record set against the old one is on a different
-## map, and only the fingerprint can say so afterwards.
-##
-## Plain types only. This goes into a JSON file, a database and an HTTP body.
+## A finished run, as it is stored, sorted, sent and compared. Plain types only: it goes into JSON, a database and an HTTP body.
+## Identity is (map, track, style, player); [method key] builds the composite a store needs.
 
 ## Format version, written into every serialised record.
 const FORMAT_VERSION := 1
@@ -27,14 +14,8 @@ var track: int = DotTimerTrack.MAIN
 
 var style_id: StringName = &"normal"
 
-## Who set it, in the host's own vocabulary.
-##
-## [b]Not a site user id, and deliberately not.[/b] The family's identity layer gives a
-## server a per-scope pseudonymous id precisely so operators cannot correlate their
-## players across servers, and a records table that stored a global id would undo
-## that. What goes here is whatever the host uses to mean "this player on this
-## server"; the backbone maps it to an account at the point of reporting, if the
-## player has linked one.
+## Who set it, in the host's own vocabulary: whatever the host uses for "this player on this server".
+## Not a global site id: the identity layer gives per-scope pseudonymous ids so operators cannot correlate players.
 var player_id: StringName = &""
 
 ## What to show. Denormalised on purpose: a leaderboard has to render without a
@@ -48,10 +29,7 @@ var time: float = 0.0
 var splits: Dictionary = {}
 
 ## Unix seconds. Presentation only; never used for ordering.
-##
-## Ordering by time and breaking ties by this would be wrong in the one case that
-## matters: two identical times are a tie, and awarding the older one first is a rule
-## nobody agreed to.
+## Breaking ties by date would award the older of two identical times, a rule nobody agreed to.
 var set_at: int = 0
 
 ## Ticks per second the run was measured at.
@@ -63,10 +41,8 @@ var zone_fingerprint: String = ""
 ## Movement statistics: jumps, strafes, sync, speeds. Whatever the host measured.
 var stats: Dictionary = {}
 
-## Points this completion earned, as computed at the time it was filed.
-##
-## Stored rather than recomputed because the formula changes and a player's total
-## should not silently move when it does. A re-rank recomputes them all deliberately.
+## Points this completion earned, as computed when it was filed.
+## Stored, not recomputed: a total should not silently move when the formula does. A re-rank recomputes deliberately.
 var points: float = 0.0
 
 ## An opaque handle to the replay, or empty. Where it lives is the store's business.
@@ -76,20 +52,11 @@ var replay_id: String = ""
 var extra: Dictionary = {}
 
 ## Which section of the track this is the time for. 0 is the whole run.
-##
-## A staged map is ranked twice: by the whole run, and section by section — the stage
-## records players chase when the whole map is out of reach. Section [code]k[/code] is
-## the stretch from stage line [code]k - 1[/code] (the start, for the first) to stage line
-## [code]k[/code] (the finish, for the last); see [method DotTimerRun.section_time].
-## Stored in the same table with its own board, because every query a board answers —
-## the record, a player's best, a rank — is the same query for a section.
+## Section [code]k[/code] runs from stage line [code]k - 1[/code] (the start) to line [code]k[/code] (the finish for the last); see [method DotTimerRun.section_time].
 var stage: int = 0
 
 ## How many times the player has finished this board, slower runs included.
-##
-## [b]Kept by the store, not by the run.[/b] A run is one attempt; the count belongs to
-## the row the store keeps, which is the only thing that sees every finish — including
-## the slower ones it does not keep.
+## Kept by the store, not the run: only the store sees every finish, including the slower ones it does not keep.
 var completions: int = 1
 
 ## Horizontal speed leaving the start, m/s. What a prespeed rule is judged against,
@@ -173,11 +140,7 @@ static func section_from_run(
 
 
 ## The composite a store keys a leaderboard by.
-##
-## Player excluded: this names the BOARD, not the row. A store looking up "the record
-## for this map, track and style" and a store looking up "this player's best" are the
-## same query with a different filter, and conflating the two keys is how a player
-## ends up holding the world record on a board they were never on.
+## Player excluded: this names the BOARD, not the row; conflating the two is how a player holds a record on a board they were never on.
 func board_key() -> String:
 	return board_key_of(map_id, track, style_id, stage)
 
@@ -198,11 +161,8 @@ func key() -> String:
 	return "%s/%s" % [board_key(), String(player_id)]
 
 
-## Whether this record beats [param other]. Strictly — an equal time does not.
-##
-## [b]Strict, and that is a rule rather than an oversight.[/b] A player who ties their
-## own record has not improved it, and replacing the row would move the date, reset
-## the replay and reorder a leaderboard for a run that was not better.
+## Whether this record beats [param other]. Strictly: an equal time does not.
+## A tie of their own record is not an improvement; replacing the row would move the date and reset the replay.
 func beats(other: DotTimerRecord) -> bool:
 	if other == null:
 		return true
@@ -296,10 +256,7 @@ func duplicate_record() -> DotTimerRecord:
 
 
 ## Sorts a list fastest-first, in place.
-##
-## A named helper rather than a lambda at each call site because getting the
-## comparison the wrong way round produces a leaderboard that looks plausible and is
-## upside down, and it is exactly the kind of thing that is copied.
+## A named helper: the wrong-way-round comparison gives a plausible but upside-down leaderboard, and gets copied.
 static func sort_fastest_first(records: Array) -> void:
 	records.sort_custom(
 		func(a: DotTimerRecord, b: DotTimerRecord) -> bool: return a.time < b.time

@@ -1,17 +1,8 @@
 class_name DotTimerTrack
 extends RefCounted
 
-## Which route through a map a run is on: the main one, or one of its bonuses.
-##
-## [b]A namespace, not an object.[/b] Nothing is ever instantiated — a track is an
-## [code]int[/code] everywhere it appears, because it is a column in a records table,
-## a field on the wire, and an index into an array of zones. Wrapping it in a class
-## would mean allocating one per record.
-##
-## The numbering is the community timers', and it is worth keeping compatible: 0 is
-## the main track
-## and 1..8 are bonuses. Maps in this genre are shared between servers and referred to
-## by the same numbers by the people who run them, so "bonus 2" has to mean bonus 2.
+## Which route through a map a run is on: 0 is the main track, 1..8 are bonuses (the community numbering).
+## A namespace, not an object: a track is an [code]int[/code] everywhere, as a table column, wire field and array index.
 
 ## The main route. Every map has one.
 const MAIN := 0
@@ -62,12 +53,8 @@ static func short_name_of(track: int) -> String:
 	return "t%d" % track
 
 
-## Parses "main", "bonus", "bonus 3", "b3", "2". [code]-1[/code] when it is none of
-## those.
-##
-## Returning -1 rather than falling back to the main track is deliberate: a console
-## command that quietly reads "bonus 9" as "main" sets a record on the wrong track,
-## and the player who typed it has no way to tell.
+## Parses "main", "bonus", "bonus 3", "b3", "2". [code]-1[/code] when it is none of those.
+## -1 rather than falling back to main: a console typo would otherwise set a record on the wrong track.
 static func parse(text: String) -> int:
 	var cleaned := text.strip_edges().to_lower()
 

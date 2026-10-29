@@ -1,39 +1,19 @@
 class_name DotTimerZoneIndex
 extends RefCounted
 
-## Answers "which zones is this point in" fast enough to ask thirty times a tick.
-##
-## [b]Why not just loop over the list.[/b] A busy surf map has forty to a hundred
-## zones, a server has thirty players, and this is asked once per player per tick at
-## 128 Hz — a hundred and twenty thousand box tests a second, before anything else in
-## the tick has run. A uniform grid over the map's extent turns that into a handful.
-##
-## The grid is uniform rather than a BVH deliberately: zones are large, few, mostly
-## axis-aligned and never move, which is the case a uniform grid is best at and the
-## case a tree's build cost is least justified by.
-##
-## [b]Rebuilt whenever the set changes, never mutated in place.[/b] An index that
-## tracked edits would have to be correct under a mapper deleting a zone mid-frame
-## while a player is inside it; rebuilding takes under a millisecond for a hundred
-## zones and removes the entire class of question.
+## Answers "which zones is this point in" fast enough to ask thirty times a tick, with a uniform grid over the map.
+## Rebuilt whenever the set changes, never mutated in place.
 
 # No log channel: a derived lookup, rebuilt from a zone set and asked thirty times a
 # tick. It cannot fail, and what is wrong with the zones it indexes is reported by
 # DotTimerZoneSet.problems(), which the manager logs on load.
 
 ## Edge length of a grid cell, in metres.
-##
-## Sized for zones rather than for players: a surf map's start box is a few metres
-## across and its stage zones tens, so eight metres puts most zones in one to a few
-## cells. Too small and a big zone is written into hundreds of cells; too large and
-## every query returns the whole map.
+## Sized for zones: too small writes a big zone into hundreds of cells, too large makes every query return the whole map.
 const CELL_SIZE := 8.0
 
 ## Cells a single zone may occupy before it is treated as covering everything.
-##
-## A map-wide gravity volume is a legitimate thing to draw and would otherwise be
-## written into tens of thousands of cells, which costs more memory than the map. Past
-## this it goes on a short "always test" list instead.
+## A map-wide volume would otherwise take tens of thousands of cells; past this it goes on an "always test" list.
 const MAX_CELLS_PER_ZONE := 512
 
 var zone_set: DotTimerZoneSet = null
@@ -98,24 +78,14 @@ static func _cell_of(point: Vector3) -> Vector3i:
 	)
 
 
-## A cell key.
-##
-## A [Vector3i] would work and allocates; this is called several times per player per
-## tick and an int key does not.
+## A cell key. An int rather than a [Vector3i], which allocates and is asked several times per player per tick.
 static func _key(x: int, y: int, z: int) -> int:
-	# Large primes so three small coordinates do not collide with each other's
-	# neighbours. Collisions are correctness-safe — a wrong bucket only means a zone
-	# is tested that does not contain the point, and `contains` decides — but a
-	# systematic collision would put half the map in one bucket.
+	# Large primes keep neighbouring cells apart; a collision only tests a zone that does not contain the point, but a systematic one would fill a bucket.
 	return x * 73856093 ^ y * 19349663 ^ z * 83492791
 
 
 ## Every zone containing [param point], in the set's own order.
-##
-## [b]The set's order, not the grid's.[/b] Two overlapping zones of the same kind is
-## a mapper's mistake, and which of them wins should be the same on the client and on
-## the server — so the answer is ordered by the file, which both machines load
-## identically, rather than by a hash whose bucket order is a property of the process.
+## The file's order, not the grid's, so overlapping zones resolve identically on client and server.
 func zones_at(point: Vector3, out: Array[DotTimerZone]) -> void:
 	out.clear()
 

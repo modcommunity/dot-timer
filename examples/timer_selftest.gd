@@ -1,31 +1,12 @@
 extends Node
 
-## Proves the timer does what a leaderboard depends on.
-##
-## [codeblock]
-## godot --headless --path . res://examples/timer_selftest.tscn
-## [/codeblock]
-##
-## Exits non-zero on any failure.
-##
-## [b]The most important test here is [method _test_tickrate_agreement].[/b] Everything
-## else checks that the timer does what it says; that one checks the claim the whole
-## design rests on — that the same run timed on a 64 Hz server and a 128 Hz server
-## produces the same time to well under a millisecond, so two servers can share a
-## records table. If the sub-tick crossing fractions are wrong, every other test here
-## still passes and the leaderboard is decided by the tickrate.
-##
-## The runs are synthetic: a player is moved along a straight line at a fixed speed,
-## one tick at a time, and the timer is ticked with each position. That is deliberate
-## — the property under test belongs to [DotTimer], and against a hand-computed path a
-## failure has exactly one possible cause.
+## Proves the timer does what a leaderboard depends on; exits non-zero on any failure.
+## Run: [code]godot --headless --path . res://examples/timer_selftest.tscn[/code]. The most important check is [method _test_tickrate_agreement]; the runs are synthetic, along a straight line.
 
 const CHECKS := 357
 
-## Sections entered against sections that ran to their last line, and against this. A
-## runtime error inside a section aborts that function and nothing says so; a section that
-## bailed out early after a failed guard is counted as not finished on purpose. The CHECKS
-## total is the other half — see docs/testing.md.
+## Sections entered against sections that ran to their last line, and against this. A runtime error aborts a section silently;
+## a section that bailed out early is counted as not finished on purpose. The CHECKS total is the other half; see docs/testing.md.
 const SECTIONS := 36
 
 var _passed := 0
@@ -106,7 +87,6 @@ func _run() -> void:
 	get_tree().quit(1 if _failed > 0 else 0)
 
 
-# --- Helpers ---------------------------------------------------------------
 
 func _section(title: String) -> void:
 	_entered += 1
@@ -139,11 +119,8 @@ func _check_near(
 	)
 
 
-## A straight corridor along +X: a start box, a finish box, and stages between.
-##
-## Start occupies x in [0, 4]; the finish x in [96, 100]. So the timed distance from
-## leaving the start to reaching the finish is exactly 92 metres, which makes every
-## expected time in this file arithmetic rather than a measurement.
+## A straight corridor along +X: a start box (x in [0, 4]) and a finish box (x in [96, 100]), with stages between.
+## The timed distance is exactly 92 metres, so every expected time is arithmetic, not a measurement.
 func _corridor() -> DotTimerZoneSet:
 	var set := DotTimerZoneSet.new()
 	set.map_id = &"test_corridor"
@@ -167,12 +144,8 @@ func _corridor() -> DotTimerZoneSet:
 	return set
 
 
-## Walks a player from [param from_x] to [param to_x] at [param speed], ticking the
-## timer once per tick. Returns the timer.
-##
-## Sub-tick positions are deliberate: the player does NOT land exactly on the zone
-## boundaries, which is the case the crossing fractions exist for and the case a whole-
-## tick timer gets wrong.
+## Walks a player from [param from_x] to [param to_x] at [param speed], ticking the timer once per tick. Returns the timer.
+## Sub-tick positions on purpose: not landing on zone boundaries is the case the crossing fractions exist for.
 func _walk(
 	set: DotTimerZoneSet,
 	tick_rate: int,
@@ -203,7 +176,6 @@ func _walk(
 	return timer
 
 
-# --- Tracks ----------------------------------------------------------------
 
 func _test_track_names() -> void:
 	_section("tracks")
@@ -223,7 +195,6 @@ func _test_track_names() -> void:
 	_done()
 
 
-# --- Zones -----------------------------------------------------------------
 
 func _test_zone_geometry() -> void:
 	_section("zone geometry")
@@ -375,12 +346,7 @@ func _test_zone_set_validation() -> void:
 
 
 ## `[track-zone-1]`: a set complete for one track and partial for another.
-##
-## [method DotTimerZoneSet.problems] is per zone and per start/end pair, so a bonus with
-## a start, an end and nothing else passes it — while every player on that bonus who
-## falls off falls for ever, because the main route's pit is filtered out by track. Five
-## suites in two games were walking this by hand, one track at a time, and the one map
-## none of them asked about had exactly that bonus.
+## [method DotTimerZoneSet.problems] is per zone and pair, so a bonus with only a start and an end passes while players falling off it fall for ever.
 func _test_route_completeness() -> void:
 	_section("route completeness, per track")
 
@@ -587,7 +553,6 @@ func _test_zone_index() -> void:
 	_done()
 
 
-# --- Running ---------------------------------------------------------------
 
 func _test_basic_run() -> void:
 	_section("a run from start to finish")
@@ -709,13 +674,8 @@ func _test_start_on_leaving() -> void:
 func _test_tickrate_agreement() -> void:
 	_section("two tickrates, one time")
 
-	# The claim the whole design rests on. The same run — same speed, same distance —
-	# timed at 64 Hz, 100 Hz and 128 Hz must produce the same number, or a shared
-	# leaderboard is decided by whichever server ticks faster.
-	#
-	# A speed that is not a whole number of ticks per metre on purpose: a run that
-	# happened to land exactly on tick boundaries would pass this test with the
-	# sub-tick fractions removed entirely.
+	# The claim the design rests on: the same run timed at 64, 100 and 128 Hz gives the same number.
+	# A speed that is not a whole number of ticks per metre on purpose, or this would pass with the sub-tick fractions removed.
 	var speed := 13.37
 
 	var at_64 := _walk(_corridor(), 64, speed).run.time()
@@ -736,10 +696,7 @@ func _test_tickrate_agreement() -> void:
 		]
 	)
 
-	# The negative control, and the reason this test is worth its length: a timer
-	# that counted whole ticks would be out by up to one tick at each end. At 64 Hz
-	# that is 31 ms — thirty times the margin above, and enough to decide any record
-	# in this genre.
+	# The negative control: a whole-tick timer would be out by up to a tick at each end, 31 ms at 64 Hz, thirty times the margin above.
 	var whole_ticks_64 := _walk(_corridor(), 64, speed).run.ticks * (1.0 / 64.0)
 	var whole_ticks_128 := _walk(_corridor(), 128, speed).run.ticks * (1.0 / 128.0)
 
@@ -754,18 +711,8 @@ func _test_tickrate_agreement() -> void:
 func _test_exact_boundary_landing() -> void:
 	_section("landing exactly on a zone boundary")
 
-	# The case a synthetic course hits every time and a real one hits whenever the
-	# numbers are round: a speed whose per-tick step divides the distance to the
-	# line, so the player's position lands on it exactly rather than straddling it.
-	#
-	# A signed distance of zero is the BOUNDARY, not a side. Folding it into
-	# "inside" — the obvious spelling — throws the crossing fraction away and makes
-	# every run exactly one tick long, at every tickrate. dot-timer's 2D suite found
-	# it; this is the 3D control.
-	#
-	# The corridor's start ends at x = 4 and its finish begins at x = 96. At 120 m/s
-	# and 60 Hz the step is exactly 2 m, so a player starting at x = -2 lands on
-	# both lines to the metre.
+	# A step that divides the distance to the line puts the player exactly on it. A signed distance of zero is the BOUNDARY, not a side;
+	# folding it into "inside" made every run one tick long. The 2D suite found it, this is the 3D control. At 120 m/s and 60 Hz from x = -2 the step is 2 m.
 	var timer := _walk(_corridor(), 60, 120.0, -2.0, 120.0)
 
 	_check(timer.runs_finished == 1, "the run finishes")
@@ -816,11 +763,7 @@ func _test_stages_and_splits() -> void:
 func _test_stage_navigation() -> void:
 	_section("stage navigation")
 
-	# The navigation half of a staged map: the timer community's staged maps, and
-	# Shavit's `sm_stages` / `sm_stagerestart`. dot-timer has carried stage zones, splits and
-	# `stage_count` since it was written and NOTHING read any of it — `stage_count`
-	# occurred exactly once in the whole family, which is this tree's own mechanical
-	# detector for a value produced correctly and consumed by nothing.
+	# The navigation half of a staged map: stage zones, splits and `stage_count` existed and nothing read them.
 	var set := _corridor()
 
 	# Every stage zone gets a destination, which is what "go to stage 3" resolves to.
@@ -857,10 +800,7 @@ func _test_stage_navigation() -> void:
 		"and the playable tracks reach a caller"
 	)
 
-	# The signal carries the zone. Captured into an Array rather than into a local:
-	# a GDScript lambda captures locals BY VALUE, so a counter incremented inside a
-	# handler stays zero outside it and the test reports a failure for a signal that
-	# fired perfectly.
+	# The signal carries the zone. Captured into an Array: a lambda captures locals BY VALUE, so a counter would stay zero outside it.
 	var asked: Array = []
 	manager.stage_requested.connect(
 		func(id: StringName, number: int, zone: DotTimerZone) -> void:
@@ -948,10 +888,7 @@ func _walk_timer_into_run(manager: DotTimerManager, id: StringName) -> void:
 func _test_hud_overlay() -> void:
 	_section("the timer HUD lays itself out")
 
-	# An interface is the one part of this family whose bugs are invisible to
-	# assertions — every property is correct and nothing fails. What CAN be asserted
-	# is a SIZE, which is the check this tree learned to write after shipping 0 x 0
-	# `Control`s twice, and a POSITION, which is what "overlay" means here.
+	# An interface's bugs are invisible to assertions; what CAN be asserted is a SIZE (0 x 0 Controls shipped twice) and a POSITION.
 	var hud := DotTimerHud.new()
 	hud.size = Vector2(1600.0, 900.0)
 	add_child(hud)
@@ -988,10 +925,7 @@ func _test_hud_overlay() -> void:
 	_check(tall.y > block.y, "turning compact off gives the taller stacked layout")
 	hud.compact = true
 
-	# Placement. `Corner` would have been the obvious name and is a GLOBAL Godot enum
-	# — the one StyleBox corner radii are indexed by — so an inner enum of that name
-	# makes every assignment to this property a parse error pointing at the
-	# assignment rather than at the name.
+	# Placement. A `Corner` enum would shadow the GLOBAL Godot enum and make every assignment a parse error pointing at the assignment.
 	hud.corner = DotTimerHud.Placement.BOTTOM_CENTRE
 	var bottom := hud._plate_origin(block)
 	hud.corner = DotTimerHud.Placement.TOP_LEFT
@@ -1571,12 +1505,7 @@ func _test_effect_zones() -> void:
 
 
 ## RESPAWN, SLAY and TELEPORT reach the host, once, on the right track.
-##
-## [b]For a long time none of them did.[/b] `effect_requested` was declared, the
-## manager forwarded it and both games connected a handler, and nothing anywhere
-## emitted it — so a RESPAWN zone under a surf map did nothing and a player who fell
-## off fell for ever. Nothing errored. This test would have caught it on the day, and
-## every check in it fails without the fix.
+## For a long time none did: `effect_requested` was declared and connected but nothing emitted it. Every check here fails without the fix.
 func _test_entry_zones_reach_the_host() -> void:
 	_section("zones that ask the host to act")
 
@@ -1669,7 +1598,6 @@ func _test_entry_zones_reach_the_host() -> void:
 	_done()
 
 
-# --- Records ---------------------------------------------------------------
 
 func _test_store() -> void:
 	_section("the records store")
@@ -1767,11 +1695,7 @@ func _test_store_filenames() -> void:
 
 	var store := DotTimerStoreFile.at("user://test_records")
 
-	# The bug this guards: `is_valid_identifier()` is false for a digit on a
-	# single-character string, so using it as the filter replaced every digit in a
-	# map id with an underscore — and in a genre whose maps are called
-	# `surf_kitsune2` and `surf_kitsune3`, those two then shared one records file
-	# with their times merged into one leaderboard, silently.
+	# The bug this guards: `is_valid_identifier()` is false for a digit, so digits in a map id became underscores and `surf_kitsune2`/`surf_kitsune3` shared one records file.
 	var a := store.path_for(&"surf_kitsune2", 0, &"normal")
 	var b := store.path_for(&"surf_kitsune3", 0, &"normal")
 
@@ -1909,10 +1833,7 @@ func _test_replay_files() -> void:
 	print("")
 	_section("a kept replay reaches the disk")
 
-	# [b]The half that had been missing.[/b] The recorder ran, the winner sat in
-	# `last_replay`, and `replays_directory` was read by nothing — so a records server
-	# lost every replay at exit and nothing anywhere failed. A check that the file
-	# exists is the only thing that can tell the two apart.
+	# The half that was missing: the recorder ran and `replays_directory` was read by nothing, so replays were lost at exit. Only a file-exists check tells.
 	var directory := "user://test_replays"
 	DotPaths.remove_tree(directory)
 
@@ -1989,10 +1910,7 @@ func _test_replay_files() -> void:
 			"a run the store did not keep does not overwrite the replay"
 		)
 
-	# Two ids that differ only where the sanitiser substitutes must not share a file.
-	# This is the records-filename bug one directory over: substitution is
-	# many-to-one, and without the hash suffix surf_kitsune2 and surf_kitsune3 became
-	# one leaderboard.
+	# Ids differing only where the sanitiser substitutes must not share a file: without the hash suffix surf_kitsune2 and surf_kitsune3 became one leaderboard.
 	var a := _record(&"p1", 1.0)
 	var b := _record(&"p1", 1.0)
 	a.map_id = &"surf/one"
@@ -2238,10 +2156,7 @@ func _test_checkpoints_practice() -> void:
 		"and clearing it does not launder the run"
 	)
 
-	# A style change does NOT take the set away. Practice mode is how somebody
-	# learns a map, and confiscating their saved positions because they switched to
-	# sideways would be confiscating the reason they switched. What the style
-	# decides is what using one costs.
+	# A style change does NOT take the set away: practice is how a map is learned; the style decides what using one costs.
 	var strict := DotTimerStyle.new()
 	strict.id = &"strict"
 	strict.allow_checkpoints = false
@@ -2304,7 +2219,6 @@ func _test_checkpoints_practice() -> void:
 	_done()
 
 
-# --- Replays ---------------------------------------------------------------
 
 func _test_replay_round_trip() -> void:
 	_section("replays")
@@ -2451,7 +2365,6 @@ func _test_replay_playback() -> void:
 	_done()
 
 
-# --- Rules and points ------------------------------------------------------
 
 func _test_rules() -> void:
 	_section("velocity rules")

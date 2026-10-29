@@ -1,34 +1,8 @@
 class_name DotTimerStoreSql
 extends DotTimerStore
 
-## Records in SQLite, PostgreSQL or MySQL, through a dot-sql driver.
-##
-## [codeblock]
-## var made := DotSql.from_config({"driver": "sqlite", "path": "user://g2gfast.db"}, self)
-## var store := DotTimerStoreSql.new(made.value)
-## var opened := await store.open()     # creates or migrates the tables
-## manager.store = store
-## [/codeblock]
-##
-## [b]The driver is duck-typed.[/b] Held untyped and asked for [code]query[/code],
-## [code]execute[/code], [code]batch[/code], [code]upsert_sql[/code] and
-## [code]migrate[/code], so dot-timer still depends only on dot-core and parses in a
-## project without dot-sql. dot-sql's drivers are the ones that exist; anything with the
-## same five methods will do.
-##
-## [b]Several servers can share one database[/b] — the reason to use this rather than
-## [DotTimerStoreFile]. Every write is shaped so two of them cannot corrupt a board:
-## an improvement is a conditional UPDATE ([code]WHERE time > ?[/code]), so a slower run
-## arriving second can never overwrite a faster one that landed first, whatever order
-## the two servers' requests reach the database in.
-##
-## [b]Reads are cached, writes go straight through.[/b] A HUD asks for the record and
-## the player's best every frame and a scoreboard asks for the top ten on every open;
-## none of that can wait on a network. So the top of a board, a board's size and each
-## player's best are kept for [member cache_seconds], and this server's own writes
-## update the cache as they land — a record set HERE is on the HUD at once. What the
-## cache cannot see is another server's write; that is at most [member cache_seconds]
-## old, which is the trade, and 0 turns caching off.
+## Records in SQLite, PostgreSQL or MySQL, through a duck-typed dot-sql driver (so dot-timer still parses without dot-sql).
+## Several servers can share one database; reads are cached for [member cache_seconds], writes go straight through.
 
 const CHANNEL := "timer.store.sql"
 
@@ -61,7 +35,6 @@ func _init(p_driver = null) -> void:
 	driver = p_driver
 
 
-# --- Schema ----------------------------------------------------------------
 
 func table(name: String) -> String:
 	return prefix + name
@@ -183,9 +156,7 @@ func migration_steps() -> Array:
 
 
 ## Opens the driver and creates or migrates the tables.
-##
-## [b]A database written by a newer build is refused[/b] (dot-sql's migrator), rather
-## than read with columns that have changed meaning underneath this one.
+## A database written by a newer build is refused by dot-sql's migrator rather than read with changed columns.
 func open() -> DotResult:
 	if driver == null:
 		return DotResult.fail(DotError.CODE_STATE, "No SQL driver.")
@@ -213,7 +184,6 @@ func is_open() -> bool:
 	return driver != null and driver.is_open()
 
 
-# --- Row mapping -----------------------------------------------------------
 
 const RECORD_COLUMNS := [
 	"map", "track", "style", "stage", "player", "name", "time", "splits", "set_at",
@@ -280,7 +250,6 @@ static func _bool(value: Variant) -> bool:
 	return str(value).strip_edges().to_lower() in ["1", "true", "t", "yes"]
 
 
-# --- Statements ------------------------------------------------------------
 
 const BOARD_WHERE := "map = ? AND track = ? AND style = ? AND stage = ?"
 
@@ -312,7 +281,6 @@ func _select_record(
 	return DotResult.success(_record_from(rows[0]) if not rows.is_empty() else null)
 
 
-# --- Boards ----------------------------------------------------------------
 
 func put(record: DotTimerRecord) -> DotResult:
 	if record == null:
@@ -384,13 +352,8 @@ func put(record: DotTimerRecord) -> DotResult:
 	if not wrote.ok:
 		return wrote.wrap("Could not file the record.")
 
-	# [b]Read back, then decide.[/b] The conditional UPDATE keeps the faster row whatever
-	# order two servers' writes land in, but it cannot tell THIS caller whether its write
-	# was the one kept — and a driver's affected-row count is not something every
-	# backend gives. So the row is read again: if it is not this run, another server
-	# filed a faster one in between, and this run is a completion, not an improvement.
-	# The record question is asked of the board as it stands after the write, so two
-	# servers beating the same record at once do not both announce it.
+	# Read back, then decide: the conditional UPDATE keeps the faster row but cannot tell THIS caller if its write was kept (affected-row counts vary by backend).
+	# If the row is not this run, another server filed a faster one; the record question is asked of the board after the write.
 	var board := record.board_key()
 	var after := await _select_record(record.map_id, record.track, record.style_id, record.player_id, record.stage)
 	if not after.ok or after.value == null:
@@ -723,7 +686,6 @@ func wipe_map(map_id: StringName) -> DotResult:
 	return DotResult.success(int(counted.value) if counted.ok else 0)
 
 
-# --- Players ---------------------------------------------------------------
 
 func note_player(
 	player_id: StringName, name: String, seen_at: int, playtime_add: float = 0.0
@@ -868,7 +830,6 @@ func player_rank(player_id: StringName) -> DotResult:
 	return DotResult.success({"rank": int(above.value) + 1, "total": int(total.value), "points": points})
 
 
-# --- Maps ------------------------------------------------------------------
 
 func put_map(info: Dictionary) -> DotResult:
 	var id := str(info.get("map", ""))
@@ -924,7 +885,6 @@ func maps() -> DotResult:
 	return DotResult.success(out)
 
 
-# --- Progress --------------------------------------------------------------
 
 func note_progress(
 	player_id: StringName, map_id: StringName, track: int, style_id: StringName,
@@ -948,11 +908,7 @@ func note_progress(
 	if finished:
 		sql += ", completions = completions + 1"
 		if float((existing.value as Dictionary)["time_to_first"]) < 0.0:
-			# Computed here rather than as `time_spent + ?` in the statement: MySQL
-			# evaluates SET left to right with the values it has already assigned, so
-			# there `time_spent` is the NEW total and the finish would be counted twice.
-			# Postgres and SQLite read the old row. One spelling that means the same on
-			# all three is a bound value.
+			# Computed here, not as `time_spent + ?`: MySQL's SET sees already-assigned values and would count the finish twice; a bound value means the same on all three.
 			sql += ", time_to_first = ?"
 			params.append(float((existing.value as Dictionary)["time_spent"]) + maxf(seconds, 0.0))
 	var res := await _execute(sql + " WHERE player = ? AND map = ? AND track = ? AND style = ?", params + key)
@@ -977,7 +933,6 @@ func progress_for(
 	})
 
 
-# --- Saved runs ------------------------------------------------------------
 
 func save_resume(player_id: StringName, map_id: StringName, state: Dictionary) -> DotResult:
 	var res := await _execute(
@@ -1004,7 +959,6 @@ func take_resume(player_id: StringName, map_id: StringName) -> DotResult:
 	return DotResult.success(state if not state.is_empty() else null)
 
 
-# --- The cache -------------------------------------------------------------
 
 func peek_top(
 	map_id: StringName, track: int, style_id: StringName,

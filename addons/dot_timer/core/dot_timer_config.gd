@@ -2,44 +2,17 @@
 class_name DotTimerConfig
 extends DotConfig
 
-## Every number a timer server is configured with. Layered like every [DotConfig]:
-## exported defaults, then a JSON file, then [code]DOT_TIMER_*[/code] environment
-## variables, then [code]--timer-*[/code] arguments.
-##
-## [b]Why this exists at all.[/b] Every other addon in the family has one —
-## [code]DotFpsTunables[/code], [code]DotServerConfig[/code],
-## [code]DotPropLimits[/code] — and the reason is always the same: a dedicated server
-## has to be reconfigured without an editor and without a rebuild, at three in the
-## morning, by somebody who is not the person who wrote it. Exports on a node are not
-## that. This was the one gap in the set.
-##
-## [b]The tick rate is the field that matters most here[/b], because it is the only
-## one that can silently invalidate a records table. See [member tick_rate].
+## Every number a timer server is configured with, layered like every [DotConfig]: defaults, JSON file, [code]DOT_TIMER_*[/code] environment, [code]--timer-*[/code] arguments.
+## A dedicated server has to be reconfigured without an editor or a rebuild; the tick rate is the field that can silently invalidate a records table.
 
 @export_group("Simulation")
 
-## Ticks per second the timer counts in. [b]Must match the host's simulation rate.[/b]
-##
-## [b]0 means "take it from the engine", and that is the right answer on a server.[/b]
-## dot-server writes [member Engine.physics_ticks_per_second] from its own
-## [code]sv_tickrate[/code] cvar, so a timer that reads the engine is a timer an
-## operator configures in [code]server.cfg[/code] along with everything else — one
-## number, one place. A fixed value here is for a client or a test that has no server
-## to ask.
-##
-## [b]Getting this wrong does not fail loudly.[/b] A timer counting 128 ticks a second
-## on a server stepping 64 produces times exactly twice what they should be, and
-## nothing anywhere errors — the runs finish, the records file, and the leaderboard is
-## simply wrong by a factor of two against every other server. That is why
-## [method DotTimerManager.adopt_engine_tick_rate] exists and why a record carries the
-## rate it was set at.
+## Ticks per second the timer counts in. Must match the host's simulation rate; 0 takes it from the engine, which is right on a server.
+## A wrong rate fails nowhere: runs finish, records file and every time is off by the ratio. See [method DotTimerManager.adopt_engine_tick_rate].
 @export_range(0, 240, 1) var tick_rate: int = 0
 
-## Fall back to this when [member tick_rate] is 0 and the engine has not been set.
-##
-## 128 rather than 60: this genre runs 100 or 128 tick servers, and a timer that
-## quietly defaulted to the engine's 60 would produce times a fifth coarser than
-## anybody expects on a server whose operator never set the cvar.
+## Fallback when [member tick_rate] is 0 and the engine has not been set.
+## 128 rather than 60: this genre runs 100 or 128 tick servers, and 60 would give times a fifth coarser than expected.
 @export_range(1, 240, 1) var default_tick_rate: int = 128
 
 @export_group("Records")
@@ -48,25 +21,17 @@ extends DotConfig
 @export var record_runs: bool = true
 
 ## Where a [DotTimerStoreFile] keeps its boards. Empty keeps records in memory only.
-##
-## Under [code]user://[/code] by default, because that is the one directory a server
-## can write on every platform including the browser — where it is an IndexedDB
-## mirror that needs an explicit flush, which the store does.
+## Under [code]user://[/code]: the one directory a server can write on every platform.
 @export var records_directory: String = "user://records"
 
 ## Boards written per flush before the rest wait for the next one.
-##
-## Bounded because a map change can dirty every board on the map at once, and writing
-## forty files inside one frame is a stall a player feels.
+## Bounded because a map change can dirty every board at once and forty files in one frame is a stall.
 @export_range(1, 256, 1) var flush_batch: int = 16
 
 @export_group("Replays")
 
 ## Whether replays are recorded at all.
-##
-## Costs memory per player in a run and most of it is thrown away — see
-## [DotTimerReplayRecorder]. On by default because a timer without replays is half a
-## timer; off is the right answer for a thirty-slot server with 256 MB.
+## Costs memory per player in a run; on by default, off for a small server.
 @export var record_replays: bool = true
 
 ## Where replays are kept. Empty keeps them in memory only.
@@ -86,46 +51,25 @@ extends DotConfig
 @export_group("Rules")
 
 ## Speed a fast player is assumed to reach, in m/s, for the thin-zone warning.
-##
-## Used only by [method DotTimerZoneSet.thin_zones], which is advisory — but it is the
-## first thing to look at when a zone "does not work", and the right number is a
-## property of the game rather than of the addon. A surf server sets this high.
+## Advisory, but the first thing to check when a zone "does not work"; a surf server sets it high.
 @export_range(1.0, 500.0, 1.0) var fastest_expected_speed: float = 40.0
 
-## Speed a player is assumed to FALL at, in m/s, for the thin-zone warning. Zero means
-## "the same as [member fastest_expected_speed]".
-##
-## [b]Separate because a floor and a wall are not crossed at the same speed, and zero
-## by default because guessing low here is how the warning goes quiet on a real
-## bug.[/b] A map built for jumping is full of height bands a player enters on the way
-## up at walking speed, and warning about every one of them trains everybody to ignore
-## the warning. But a pit volume drawn as a thin horizontal plane is the same shape,
-## and a player falling into it at genre speed passes straight through — that is the
-## single most common defect in an imported map. Lower this only for a game that knows
-## how far its players can fall; a surf server that caps velocity at 3500 u/s on every
-## axis leaves it alone.
+## Speed a player is assumed to FALL at, in m/s, for the thin-zone warning. Zero means the same as [member fastest_expected_speed].
+## Separate because a floor and a wall are not crossed at the same speed. Lower it only for a game that knows how far its players fall.
 @export_range(0.0, 500.0, 1.0) var fastest_expected_fall_speed: float = 0.0
 
-## Whether practice checkpoints exist at all.
-##
-## The server's switch. What using one COSTS is the style's — see
-## [member DotTimerStyle.allow_checkpoints]. Off is for a competition evening; on is
-## how anybody learns a map.
+## Whether practice checkpoints exist at all; the server's switch.
+## What using one COSTS is the style's: [member DotTimerStyle.allow_checkpoints].
 @export var allow_checkpoints: bool = true
 
-## Whether a client's own timer may file records. [b]Always false on a client.[/b]
-##
-## Here as well as on the manager so it can be forced off from a config file: a
-## build that shipped with it on is a build a modified client can announce world
-## records from, and the fix has to be reachable without a rebuild.
+## Whether a client's own timer may file records. Always false on a client.
+## Here so it can be forced off from a config file without a rebuild.
 @export var authoritative: bool = false
 
 @export_group("Ranking")
 
-## Which points formula ranks players: [code]curve[/code], [code]tiered[/code] or
-## [code]placement[/code]. See [DotTimerPoints] for what each rewards. Changing it on a
-## live server re-scores a board the next time its record changes; run
-## [method DotTimerManager.rescore_map] to re-score everything at once.
+## Which points formula ranks players: [code]curve[/code], [code]tiered[/code] or [code]placement[/code]; see [DotTimerPoints].
+## Changing it re-scores a board on its next change; [method DotTimerManager.rescore_map] does everything at once.
 @export var points_formula: String = "curve"
 
 ## Decay down a player's own list of records when totalling them. 1 = a plain sum.
@@ -205,10 +149,7 @@ func validate() -> DotResult:
 
 
 ## The rate the timer should actually count in.
-##
-## [param engine_rate] is [member Engine.physics_ticks_per_second], which on a
-## dot-server is whatever [code]sv_tickrate[/code] was set to. Passed in rather than
-## read here so this class stays a pure description and a test can supply one.
+## [param engine_rate] is passed in, not read, so this class stays a pure description a test can feed.
 func effective_tick_rate(engine_rate: int = 0) -> int:
 	if tick_rate > 0:
 		return tick_rate

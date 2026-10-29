@@ -1,28 +1,8 @@
 class_name DotTimerRankTitles
 extends RefCounted
 
-## The name a player's standing earns them — the title beside their name in chat and on
-## the scoreboard.
-##
-## [b]Data, not code.[/b] Every community names its ladder differently and moves the
-## boundaries as it grows, so a ladder is a list a server loads from a file:
-##
-## [codeblock]
-## [
-##     {"title": "Record Holder", "colour": "#ffd700", "rank": [1, 1]},
-##     {"title": "Elite",         "colour": "#ff7f50", "rank": [2, 10]},
-##     {"title": "Top 5%",        "colour": "#7fc8ff", "percent": [0, 5]},
-##     {"title": "Regular",       "colour": "#9ccc65", "points": [1000, 0]},
-##     {"title": "Newcomer",      "colour": "#bdbdbd", "points": [1, 0]},
-##     {"title": "Unranked",      "colour": "#757575", "points": [0, 0]}
-## ]
-## [/codeblock]
-##
-## Each entry has exactly one requirement: a [code]rank[/code] range, a
-## [code]percent[/code] range (of ranked players; 0 is the top), or a [code]points[/code]
-## range, where an upper bound of 0 means "and above". [b]The first match wins[/b], so
-## the list is read top to bottom like the ladder it draws — which is what lets "Record
-## Holder" sit above a points band that would also contain them.
+## The name a player's standing earns them, as a ladder loaded from a list of entries.
+## Each entry has one requirement: [code]rank[/code], [code]percent[/code] or [code]points[/code] range (upper 0 = and above); the first match wins.
 
 var entries: Array[Dictionary] = []
 

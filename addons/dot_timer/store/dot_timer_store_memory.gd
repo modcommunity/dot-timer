@@ -1,14 +1,8 @@
 class_name DotTimerStoreMemory
 extends DotTimerStore
 
-## Records in dictionaries. For tests, for a scratch server, and as the reference
-## implementation of the interface — [DotTimerStoreFile] is this plus a disk, and the
-## SQL store's live suite checks it against this one.
-##
-## [b]The board index is kept sorted on write, not on read.[/b] A leaderboard is read
-## far more often than it is written — a HUD asks for the top ten every time somebody
-## finishes, and a scoreboard asks on every open — so paying the sort on the write is
-## the right side of the trade.
+## Records in dictionaries. For tests, a scratch server, and as the reference implementation of the interface.
+## The board index is kept sorted on write, not on read: boards are read far more often than written.
 
 ## board key -> player id -> record.
 var _rows: Dictionary = {}
@@ -38,7 +32,6 @@ static func _key(
 	return DotTimerRecord.board_key_of(map_id, track, style_id, stage)
 
 
-# --- Boards ----------------------------------------------------------------
 
 func put(record: DotTimerRecord) -> DotResult:
 	if record == null:
@@ -322,7 +315,6 @@ func wipe_map(map_id: StringName) -> DotResult:
 	return DotResult.success(removed)
 
 
-# --- Players ---------------------------------------------------------------
 
 func note_player(
 	player_id: StringName, name: String, seen_at: int, playtime_add: float = 0.0
@@ -411,7 +403,6 @@ func _ranked_players() -> Array[Dictionary]:
 	return rows
 
 
-# --- Maps ------------------------------------------------------------------
 
 func put_map(info: Dictionary) -> DotResult:
 	var id := StringName(str(info.get("map", "")))
@@ -442,7 +433,6 @@ func maps() -> DotResult:
 	return DotResult.success(out)
 
 
-# --- Progress --------------------------------------------------------------
 
 func note_progress(
 	player_id: StringName, map_id: StringName, track: int, style_id: StringName,
@@ -469,7 +459,6 @@ func progress_for(
 	return DotResult.success((row as Dictionary).duplicate() if row is Dictionary else null)
 
 
-# --- Saved runs ------------------------------------------------------------
 
 func save_resume(player_id: StringName, map_id: StringName, state: Dictionary) -> DotResult:
 	_resume["%s|%s" % [String(player_id), String(map_id)]] = state.duplicate(true)
@@ -483,7 +472,6 @@ func take_resume(player_id: StringName, map_id: StringName) -> DotResult:
 	return DotResult.success(state if state is Dictionary else null)
 
 
-# --- Synchronous ----------------------------------------------------------
 
 func peek_top(
 	map_id: StringName, track: int, style_id: StringName,
@@ -500,7 +488,6 @@ func peek_best(
 	return (found as DotTimerRecord).duplicate_record() if found is DotTimerRecord else false
 
 
-# --- Internals -------------------------------------------------------------
 
 ## Puts a stored row back as it was — no history entry, no completion bump. For a store
 ## loading its own rows from disk, which is not a finish.

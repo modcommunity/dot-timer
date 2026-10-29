@@ -1,25 +1,8 @@
 class_name DotTimerNet
 extends RefCounted
 
-## What a timer has to replicate, and how to move it between a [DotTimerRun] and a
-## wire.
-##
-## [b]dot-net is not a dependency and is not mentioned here.[/b] The family rule, and
-## in GDScript not merely a preference: a script that names a [code]class_name[/code]
-## the project does not have fails to parse and takes everything referencing it down
-## too. So the writer and reader are typed [Variant] and their methods are called by
-## name, exactly as [code]DotFpsCommand.write[/code] does.
-##
-## [b]What actually needs to travel is smaller than it looks.[/b] A client runs its own
-## [DotTimer] over its own copy of the zones and reaches the same answer a tick
-## earlier than any packet could — which is the whole reason the timer is
-## deterministic and counted in ticks. So the server does not stream a running clock;
-## it sends the run's [i]identity[/i] (is one going, on what track and style, since
-## which tick) and lets the client compute the display. That is 30 bits, once, per
-## state change.
-##
-## The exception is a finish. A finished time is authoritative, is the number that
-## goes on a leaderboard, and is the one thing a client must not compute for itself.
+## What a timer has to replicate, and how to move it between a [DotTimerRun] and a wire.
+## The writer and reader are typed [Variant] and called by name, so dot-net is not a dependency (a missing class_name fails the parse).
 
 ## Status, as two bits. [enum DotTimerRun.Status] has four members and always will:
 ## a fifth would be a different concept, not another state of this one.
@@ -30,14 +13,8 @@ const STATUS_BITS := 2
 ## 22 bits is 4.19 million ticks, or nine hours. A run longer than that is not a run.
 const TICK_BITS := 22
 
-## A style, as an index into the server's own ordered table rather than as a name.
-##
-## [b]An index, and it is a real trade.[/b] A name is self-describing and costs 8-16
-## bytes per message; an index is 5 bits and is meaningless unless both ends agree
-## about the table. The family already requires that agreement for modifier indices
-## and message ids — see the note about registration order in dot-player-controller —
-## and the same rule applies: build the style table from the same code on both sides,
-## in a fixed order, never conditionally.
+## A style, as an index into the server's own ordered table rather than a name.
+## An index is 5 bits but meaningless unless both ends build the style table from the same code in a fixed order.
 const STYLE_BITS := 5
 
 ## Fractional tick offsets, quantised. 10 bits over 0..1 is a thousandth of a tick,
@@ -86,11 +63,7 @@ class RunState extends RefCounted:
 
 
 ## A finished run, as the server announces it.
-##
-## The time is sent as ticks and offsets rather than as a float, so the client
-## reproduces the server's own arithmetic exactly rather than a rounding of it. Two
-## machines that display different last digits for the same world record is a bug
-## report that costs a week.
+## Sent as ticks and offsets, not a float, so the client reproduces the server's arithmetic exactly.
 class Finish extends RefCounted:
 	var track: int = DotTimerTrack.MAIN
 	var style_index: int = 0
@@ -101,11 +74,7 @@ class Finish extends RefCounted:
 	## Whether the run was filed, and the rank if it was. 0 means it was not.
 	var rank: int = 0
 
-	## The same arithmetic as [method DotTimerRun.time], and it has to stay that
-	## way: the start fraction is time before the first counted tick and comes
-	## off; the end fraction is time after the last one and goes on. This once
-	## subtracted both, and every announced finish was two fractions short of
-	## the run it announced — found by the first client that compared them.
+	## The same arithmetic as [method DotTimerRun.time]: the start fraction comes off, the end fraction goes on.
 	func time(tick_interval: float) -> float:
 		return maxf(
 			(float(ticks) - start_offset + end_offset) * tick_interval, 0.0
@@ -168,12 +137,7 @@ static func finish_of(
 
 
 ## Rebuilds a client-side run from replicated state and the client's own tick.
-##
-## [b]The client's clock, not the server's.[/b] The point of sending a start tick
-## rather than an elapsed time is that the client's HUD then advances on its own
-## between packets instead of stepping once per snapshot — the same stepping problem
-## dot-net's interpolator exists to remove, and one that a timer displays at 60 frames
-## a second in three decimal places.
+## The client's clock, not the server's, so the HUD advances between packets instead of stepping once per snapshot.
 static func run_from_state(
 	state: RunState, current_tick: int, tick_interval: float, style_id: StringName
 ) -> DotTimerRun:

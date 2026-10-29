@@ -2,18 +2,8 @@
 class_name DotTimerZoneVolume2D
 extends Node2D
 
-## The 2D counterpart of [DotTimerZoneVolume3D].
-##
-## [b]The timer itself is dimension-agnostic[/b] — it works on [Vector3] positions and
-## does not care what they mean — so a 2D game gets timers, tracks, stages, styles,
-## records, replays and leaderboards from the same addon a surf server uses. This node
-## is the whole of the 2D-specific part: it maps a rectangle in the XY plane onto a
-## box that is unbounded on Z, so a sample of [code]Vector3(x, y, 0)[/code] falls
-## inside it.
-##
-## Getting that third axis wrong is the single most likely way to draw a 2D zone that
-## never fires, which is why it is done here once rather than at every call site. See
-## [method DotTimerZone.flatten_for_2d].
+## The 2D counterpart of [DotTimerZoneVolume3D]: maps a rectangle in the XY plane onto a box unbounded on Z.
+## Done once here because a wrong third axis is the likeliest way to draw a 2D zone that never fires; see [method DotTimerZone.flatten_for_2d].
 
 @export var kind: DotTimerZone.Kind = DotTimerZone.Kind.START:
 	set(value):

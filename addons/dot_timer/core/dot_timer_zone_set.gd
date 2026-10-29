@@ -2,42 +2,18 @@
 class_name DotTimerZoneSet
 extends Resource
 
-## Every zone in one map, and the file a mapper hands round.
-##
-## [b]This is the artefact the genre runs on.[/b] Surf and bhop maps are made by
-## people who are not the server operators: a map ships as geometry, and somebody
-## then stands in it with a console open and draws the start and finish. That file is
-## traded, corrected, and re-traded — the community timers' [code]zones.json[/code]
-## does this and
-## communities have shared them for years. So the format here is plain JSON, is
-## readable, is hand-editable, and carries the map name and a hash so a server can
-## tell whether the zones it holds were drawn for the map it loaded.
-##
-## [codeblock]
-## var set := DotTimerZoneSet.new()
-## set.map_id = &"surf_beginner"
-## set.add(DotTimerZone.make(DotTimerZone.Kind.START).set_box(a, b))
-## set.save_json("user://zones/surf_beginner.json")
-## [/codeblock]
-##
-## [b]The set is authoritative on the server and advisory on a client.[/b] A client
-## needs the zones to draw them and to predict its own crossing; only the server's
-## copy decides a record. See [DotTimer].
+## Every zone in one map, and the file a mapper hands round: plain, hand-editable JSON carrying the map name and a hash.
+## Authoritative on the server, advisory on a client (which needs the zones only to draw them and predict). See [DotTimer].
 
 # No log channel: the document a mapper trades. Loading and saving return a DotResult
 # and problems() returns strings; DotTimerManager logs both, with the map it was loading.
 
 ## Format version written into every file.
-##
-## Bumped when the meaning of a field changes, never when one is added — a reader
-## that ignores an unknown key already handles an addition, and refusing a file for
-## one is how a mapper's afternoon is wasted.
+## Bumped when a field's meaning changes, never when one is added: a reader that ignores unknown keys already handles additions.
 const FORMAT_VERSION := 1
 
 ## The map these zones were drawn for.
-##
-## Not a file path. A map is content that may be delivered, mounted and versioned by
-## dot-cloud, so its identity is an id and its path is a deployment detail.
+## An id, not a file path: a map may be delivered, mounted and versioned by dot-cloud, so its path is a deployment detail.
 @export var map_id: StringName = &""
 
 @export var zones: Array[DotTimerZone] = []
@@ -46,11 +22,7 @@ const FORMAT_VERSION := 1
 @export var meta: Dictionary = {}
 
 ## Next id to hand out. Monotonic, never reused.
-##
-## Reusing the id of a deleted zone means a replay's crossing marks, an editor's undo
-## stack and a moderator's "zone 12 is wrong" all point at a different volume than
-## they did — a silent corruption whose only symptom is somebody's complaint no longer
-## making sense.
+## A reused id would make a replay's crossing marks, an undo stack and a moderator's "zone 12 is wrong" point at a different volume.
 @export var next_id: int = 1
 
 
@@ -108,12 +80,7 @@ func first_of_kind(kind: DotTimerZone.Kind, track: int) -> DotTimerZone:
 
 
 ## Tracks that have both a start and an end, in ascending order.
-##
-## [b]Both, and that is the point of the method.[/b] A track with a start and no
-## finish is the most common thing wrong with a hand-drawn zone file: it is playable,
-## the timer starts, and nobody can ever complete it. Listing only the tracks that can
-## actually be run means a map with a broken bonus offers the main track rather than
-## offering a bonus that silently cannot be finished.
+## A start with no finish is the commonest hand-drawn mistake: playable, the timer starts, and nobody can complete it.
 func playable_tracks() -> PackedInt32Array:
 	var out := PackedInt32Array()
 
@@ -139,12 +106,7 @@ func stage_count(track: int) -> int:
 
 
 ## The stage zone numbered [param number] on [param track], or null.
-##
-## [b]What "go to stage 3" resolves against.[/b] Shavit's `!s3` and `!rs` are the
-## commands this genre's players reach for on a staged map, and both of them are this
-## lookup plus the zone's [member DotTimerZone.destination]. Without it a staged map
-## is a map with splits on it: the stages exist, they are numbered, and there is no
-## way to practise one.
+## What "go to stage 3" resolves against: this lookup plus the zone's [member DotTimerZone.destination].
 func stage_zone(track: int, number: int) -> DotTimerZone:
 	for zone in zones:
 		if (
@@ -157,12 +119,9 @@ func stage_zone(track: int, number: int) -> DotTimerZone:
 	return null
 
 
-# --- Validation ------------------------------------------------------------
 
 ## Problems that make the set unusable. Empty means it is fine.
-##
-## Returns every problem rather than the first: a mapper who has drawn forty zones
-## wants the list, not forty rounds of save-and-retry.
+## Returns every problem, not the first: a mapper with forty zones wants the list, not forty save-and-retry rounds.
 func problems() -> PackedStringArray:
 	var out := PackedStringArray()
 	var seen_ids := {}
@@ -233,26 +192,14 @@ func _stage_problems(track: int) -> PackedStringArray:
 	return out
 
 
-# --- Routes ----------------------------------------------------------------
 
 ## The [member meta] key a map declares its pitless routes under: a list of tracks.
-##
-## [b]Data, not an argument, because the zone file is what ships.[/b] A route a player
-## cannot fall off — a circuit on a walled floor, a 2D course with ground under all of
-## it — is a real thing, and the only place that knows is the map. Declared in the set,
-## it travels with the file to every server that loads it and is visible to the next
-## person who edits it, where a flag passed by one caller would be a mute button that
-## caller alone holds.
+## Data, so the declaration travels with the zone file to every server and is visible to the next editor.
 const PITLESS_TRACKS_KEY := "pitless_tracks"
 
 
 ## Tracks that are routes: any track with a START, an END or a STAGE on it, ascending.
-##
-## [b]Not "any track with a zone".[/b] A track with only a SPAWN on it — the main track
-## of a sandbox map whose courses are all bonuses — is somewhere a player stands, not a
-## route anybody runs, and asking it for a finish would fail the one map shape that
-## proves a game does not quietly require a timer. The moment a track carries a timing
-## zone it is a route, and [method route_problems] asks all of it.
+## Not "any track with a zone": a track with only a SPAWN is somewhere a player stands, not a route.
 func route_tracks() -> PackedInt32Array:
 	var seen := {}
 
@@ -286,33 +233,8 @@ func pitless_tracks() -> PackedInt32Array:
 	return out
 
 
-## What each route on this map is missing. Empty means every one of them can be spawned
-## onto, begun, finished, and fallen off of without falling for ever.
-##
-## [b]Per track, which is what [method problems] is not.[/b] That check is per zone and
-## per pair: it reports a start without an end, and it cannot see a bonus with a start,
-## an end and nothing else. Every zone carries a track and the timer acts only on its
-## own, so a RESPAWN on the main route catches nobody on bonus 1 — a set complete for
-## track 0 and partial for track 1 passes [method problems] while being a route whose
-## players fall out of the world, and this family shipped that on five routes before
-## this existed. Each route needs:
-##
-## - a START and an END, or it cannot be run;
-## - a SPAWN, or [code]spawn_for[/code] falls back to the MAIN track's and the bonus
-##   silently starts at the map's start;
-## - a RESPAWN, because [b]there is no track-agnostic one[/b]: [method DotTimer._request_effects]
-##   drops every zone off the run's track before it asks the host for anything, and
-##   nothing in this addon or either game catches a player below the world. A route a
-##   player truly cannot fall off says so under [constant PITLESS_TRACKS_KEY]; a
-##   declaration naming a track that has a pit anyway, or that is not a route, is
-##   reported too, so the exemption cannot outlive its reason;
-## - its stages numbered 1..n, the same rule [method problems] applies.
-##
-## [b]Separate from [method problems], deliberately.[/b] That one is "the set is
-## unusable" and refuses a painter's save; a half-drawn bonus with a start and an end
-## but no spawn yet is a thing an admin saves on the way to finishing it. This is "a
-## route on this map is not finished", which a map's own suite asserts is empty and
-## [DotTimerManager] warns about on load.
+## What each route on this map is missing. Empty means every route can be spawned onto, begun, finished and fallen off of.
+## Per track, which [method problems] is not; separate from it so a half-drawn bonus can still be saved.
 func route_problems() -> PackedStringArray:
 	var out := PackedStringArray()
 	var routes := route_tracks()
@@ -359,21 +281,8 @@ func route_problems() -> PackedStringArray:
 	return out
 
 
-## Zones thin enough that a fast player can pass through one in a single tick.
-##
-## [b]Advisory, and the first thing to check when a zone "does not work".[/b] At
-## 128 Hz a player at 30 m/s covers 23 cm per tick, and at 64 Hz nearly half a metre.
-## A finish volume thinner than that is not sampled on any tick the player is inside
-## it, so the run simply never ends — for the fast players only, which is exactly the
-## population that notices.
-##
-## [b]`fastest_fall_speed` is how fast a player crosses a zone's Y extent[/b], and
-## zero means "the same as `fastest_speed`", which is what every caller got before the
-## split existed. It is separate because the two are not the same number on a map
-## built for jumping: a height band a player enters on the way up at 7 m/s and a floor
-## they arrive at out of a long drop are the same shape and only one of them is a bug.
-## See [method DotTimerZone.is_thin_for] for why the conservative default is the
-## horizontal speed rather than something gravity-sized.
+## Zones thin enough that a fast player can pass through one in a single tick. Advisory.
+## [code]fastest_fall_speed[/code] judges the Y extent; zero means the same as [code]fastest_speed[/code]. See [method DotTimerZone.is_thin_for].
 func thin_zones(
 	fastest_speed: float,
 	tick_rate: int,
@@ -395,7 +304,6 @@ func thin_zones(
 	return out
 
 
-# --- Serialisation ---------------------------------------------------------
 
 func to_dictionary() -> Dictionary:
 	var list: Array = []
@@ -412,12 +320,8 @@ func to_dictionary() -> Dictionary:
 	}
 
 
-## A hash of the zones themselves, ignoring notes and ids.
-##
-## [b]What a records table is keyed against, and why it excludes the notes.[/b] Moving
-## a finish line invalidates every record on the map; correcting a mapper's comment
-## does not. A hash over the whole file would throw away a leaderboard for a typo fix,
-## and a records system that punishes tidying up is one nobody tidies up.
+## A hash of the zones themselves, ignoring notes and ids: what a records table is keyed against.
+## Moving a finish line invalidates every record; correcting a comment must not.
 func fingerprint() -> String:
 	var parts := PackedStringArray()
 	var sorted := zones.duplicate()

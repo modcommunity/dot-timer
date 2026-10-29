@@ -1,38 +1,8 @@
 class_name DotTimerPoints
 extends RefCounted
 
-## What a record is worth, and how a player's records add up to a ranking.
-##
-## [b]Three formulas, chosen by configuration, because the choice is the whole of a
-## ranking system's politics and communities disagree about it.[/b] A ranking by raw
-## time rewards whoever plays the easiest map; one by placement rewards whoever plays the
-## emptiest. Each of these is a different compromise:
-##
-## - [constant Formula.CURVE] — the tier's worth, quadratic in the tier, scaled by how
-##   close the run is to the record, never below a fifth for a clear. Improving always
-##   pays and a first clear of a hard map pays well. [DotTimerStyle.points_for] is this
-##   one, and it is the default because it is what every record filed so far was scored
-##   with.
-## - [constant Formula.TIERED] — linear in the tier plus a share of the record's own
-##   length, scaled by closeness; bonuses count at a fixed fraction of a tier-one map.
-##   Long maps are worth more than short ones of the same tier, which is the argument
-##   for it.
-## - [constant Formula.PLACEMENT] — placement on the board, not closeness: a record is
-##   worth a tier- and population-dependent amount, the next nine a falling share of it,
-##   everyone else a share by which slice of the board they are in, and every clear a
-##   flat completion award by tier. Rewards being near the top of a crowded board, which
-##   is the argument for it; it means every row on a board moves when anybody's does.
-##
-## [b]Every formula is recomputed for the whole board when its record changes[/b] — and
-## for PLACEMENT on any change — because every row's worth depends on the record (or on
-## everybody's place). Scoring once at filing and never again would leave a board whose
-## points say the record is a time it no longer is. [DotTimerManager] does the re-score;
-## this class only computes.
-##
-## [b]A player's total is a weighted sum[/b]: their records sorted best first, the
-## [code]i[/code]-th multiplied by [code]weighting^i[/code]. At 0.975 the hundredth record
-## is worth eight percent of the first, so a ranking reflects the best a player has done
-## rather than how many easy maps they have cleared. 1.0 is a plain sum.
+## What a record is worth, and how a player's records add up to a ranking. Three formulas ([constant Formula.CURVE], [constant Formula.TIERED], [constant Formula.PLACEMENT]).
+## Every formula is recomputed for the whole board when its record changes; [DotTimerManager] does that, this class only computes.
 
 enum Formula {
 	CURVE,
@@ -98,11 +68,7 @@ func rescore_on_any_change() -> bool:
 
 
 ## The points one record is worth.
-##
-## [param record_time] is the board's best (this run's own time if it is the record).
-## [param rank] and [param finishers] are only read by PLACEMENT. [param multiplier] is
-## the style's. A non-positive time is worth nothing, and so is a section record: the
-## ranking is of whole runs.
+## [param rank] and [param finishers] are only read by PLACEMENT. A non-positive time or a section record is worth nothing: the ranking is of whole runs.
 func points_for(
 	time: float,
 	record_time: float,

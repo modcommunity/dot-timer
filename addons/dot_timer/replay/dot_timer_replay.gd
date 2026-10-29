@@ -1,32 +1,13 @@
 class_name DotTimerReplay
 extends RefCounted
 
-## A recorded run: one frame per simulated tick, packed small enough to keep.
-##
-## [b]Why a replay is the feature that makes a timer worth having.[/b] A leaderboard
-## says somebody was fast; a replay shows how, and on a surf or bhop server the
-## world-record replay is the tutorial. It is also the only way a disputed record can
-## be adjudicated: a time on its own cannot be checked, and a run that took an
-## impossible line is obvious in three seconds of playback.
-##
-## [b]Frames are quantised and delta-encoded, and the reason is arithmetic.[/b] A
-## six-minute run at 128 Hz is 46,000 frames. At a naive 32 bytes each — three floats
-## of position, two of view, a flags word — that is 1.5 MB per record, times six styles
-## times nine tracks times every map on the server. Quantising position to a
-## millimetre and view to a tenth of a degree, and storing the difference between
-## consecutive frames, brings a typical frame to five or six bytes: about 250 KB for
-## the same run, which is a file a browser client can download before the map loads.
-##
-## [b]Nothing here interpolates or plays anything back.[/b] That is
-## [DotTimerReplayPlayer]'s job, and keeping the container dumb is what lets a replay
-## be recorded on a server that never renders one and played on a client that never
-## records one.
+## A recorded run: one frame per simulated tick, quantised and delta-encoded small enough to keep.
+## Nothing here interpolates or plays back; that is [DotTimerReplayPlayer]'s job, which keeps the container dumb.
 
 ## Magic, so a truncated or wrong file is refused rather than misread.
 const MAGIC := 0x44525031  # "DRP1"
 
-## 2 (2026-10-07): a teleport bit and buttons per frame, and the run's start and end frames
-## in the header (the run-up and the run-out around them). Version 1 still reads.
+## 2: a teleport bit and buttons per frame, and the run's start and end frames in the header. Version 1 still reads.
 const FORMAT_VERSION := 2
 
 ## Position quantisation, in metres. A millimetre is far below anything visible and
@@ -36,11 +17,8 @@ const POSITION_SCALE := 1000.0
 ## View quantisation, in degrees.
 const ANGLE_SCALE := 10.0
 
-## A frame that cannot be expressed as a delta is written whole.
-##
-## Needed for the first frame and for a teleport. Without it a single large jump would
-## either overflow the delta fields or force them to be wide enough for the worst case
-## on every frame of every replay.
+## A frame that cannot be expressed as a delta is written whole (the first, or after a teleport).
+## Otherwise a large jump would force every delta field to be wide enough for the worst case.
 const FLAG_KEYFRAME := 1 << 0
 const FLAG_GROUNDED := 1 << 1
 const FLAG_DUCKED := 1 << 2
@@ -52,10 +30,7 @@ const FLAG_TELEPORT := 1 << 4
 ## A buttons byte follows this frame's angles (version 2). Set by the encoder, never by hand.
 const FLAG_BUTTONS := 1 << 5
 
-## Largest delta a short frame can carry, in quantised units.
-##
-## 16 bits signed: ±32 metres of movement in one tick, which is beyond anything a
-## legitimate run reaches at 128 Hz and comfortably above a laggy 64 Hz one.
+## Largest delta a short frame can carry, in quantised units: 16 bits signed, about 32 m in one tick.
 const MAX_DELTA := 32767
 
 var map_id: StringName = &""
@@ -73,10 +48,8 @@ var recorded_at: int = 0
 ## One entry per tick: position, yaw, pitch, flags.
 var frames: Array[Frame] = []
 
-## The frame the timer started on, and the frame it finished on. The frames before
-## [member start_frame] are the run-up (the player in the start zone, at speed) and after
-## [member end_frame] the run-out: a ghost that starts at the run-up's speed rather than at
-## zero, and does not stop dead on the line. 0 and the last frame for a version-1 replay.
+## The frame the timer started on, and the frame it finished on; before and after them are the run-up and run-out.
+## A ghost then starts at the run-up's speed and does not stop dead on the line. 0 and the last frame for version 1.
 var start_frame: int = 0
 var end_frame: int = -1
 
@@ -131,7 +104,6 @@ func run_end_seconds() -> float:
 	return float(run_end_frame()) / float(maxi(tick_rate, 1))
 
 
-# --- Encoding --------------------------------------------------------------
 
 static func _quantise(value: float, scale: float) -> int:
 	return int(round(value * scale))
@@ -141,11 +113,8 @@ static func _dequantise(value: int, scale: float) -> float:
 	return float(value) / scale
 
 
-## Packs the replay into bytes.
-##
-## Header, then frames. Each frame is one flags byte and then either three 32-bit
-## absolute coordinates (a keyframe) or three 16-bit deltas, plus a quantised yaw and
-## pitch.
+## Packs the replay into bytes: a header, then frames.
+## Each frame is a flags byte and three 32-bit coordinates (keyframe) or three 16-bit deltas, plus quantised yaw and pitch.
 func to_bytes() -> PackedByteArray:
 	var out := StreamPeerBuffer.new()
 	out.big_endian = false
@@ -178,10 +147,7 @@ func to_bytes() -> PackedByteArray:
 		var keyframe := not have_previous or (frame.flags & FLAG_TELEPORT) != 0
 
 		if have_previous:
-			# A jump larger than the delta field is a teleport, and there is no
-			# encoding of it that is not a keyframe. Detected rather than assumed
-			# from the flags, because a teleport a game performs itself does not
-			# necessarily set one.
+			# A jump larger than the delta field is a keyframe; detected rather than read from the flags, since a game's own teleport may not set one.
 			keyframe = keyframe or (
 				absi(x - previous_x) > MAX_DELTA
 				or absi(y - previous_y) > MAX_DELTA
@@ -229,12 +195,7 @@ static func _put_string(out: StreamPeerBuffer, text: String) -> void:
 
 
 ## Reads a length-prefixed string, or returns null if the buffer runs out.
-##
-## [b]Null rather than an empty string, and that distinction is a real bug.[/b]
-## [StreamPeerBuffer] reads past its end by returning zeros rather than failing, so a
-## file truncated inside the header produced empty strings, a frame count of zero and
-## a perfectly valid-looking replay of nothing. Returning null lets the caller tell
-## "the name was blank" from "the file ends here".
+## Null, not empty: a [StreamPeerBuffer] reads zeros past its end, so a truncated file looked like a valid replay of nothing.
 static func _get_string(reader: StreamPeerBuffer) -> Variant:
 	if reader.get_available_bytes() < 1:
 		return null
@@ -317,10 +278,7 @@ static func from_bytes(bytes: PackedByteArray) -> DotResult:
 
 	var count := reader.get_u32()
 
-	# A frame is at least 11 bytes, so a count implying more than the buffer can hold
-	# is a corrupt or hostile file. Checked before allocating, because the count is
-	# 32 bits and allocating what it asks for is how a malformed replay exhausts
-	# memory on a server that was only trying to list it.
+	# A frame is at least 11 bytes; a count implying more than the buffer holds is corrupt or hostile, checked before allocating what a 32-bit count asks for.
 	if count > bytes.size():
 		return DotResult.fail(
 			DotError.CODE_PARSE,

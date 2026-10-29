@@ -1,33 +1,8 @@
 class_name DotTimer
 extends RefCounted
 
-## The timer for one player: starts, splits, finishes, and reports what the map asked
-## for along the way.
-##
-## [codeblock]
-## var timer := DotTimer.new()
-## timer.bind(zone_set, 128)
-##
-## # every simulated tick
-## sample.position = player_position
-## sample.velocity = player_velocity
-## sample.grounded = player_is_grounded
-## timer.tick(sample)
-## [/codeblock]
-##
-## [b]One instance per player, and no singletons anywhere.[/b] A server times thirty
-## of these at once, a replay viewer runs another over the same map, and a test runs
-## a hundred in one process.
-##
-## [b]The timer decides; the game acts.[/b] Nothing here teleports a player, kills
-## one, changes their gravity or refuses their jump. It reports what the zone asked
-## for and the host does it — because "teleport" means something different in a
-## first-person controller, a 2D game and a replay being scrubbed, and a timer that
-## knew how to do it would only work in one of them.
-##
-## [b]Everything is counted in simulated ticks.[/b] No wall clock, anywhere. A timer
-## that read the system clock could be sped up by lagging the server, would not
-## reproduce from a replay, and would disagree with itself after a stall.
+## The timer for one player: starts, splits, finishes, and reports what the map asked for along the way.
+## One instance per player; it decides and the host acts; everything is counted in simulated ticks, never the wall clock.
 
 const CHANNEL := "timer"
 
@@ -43,32 +18,21 @@ signal run_stopped(run: DotTimerRun, reason: StringName)
 ## Fired on reaching a stage for the first time in a run.
 signal stage_reached(number: int, split_seconds: float)
 
-## Fired the tick a player enters or leaves any zone.
-##
-## [b]Every zone, including the ones the timer acts on itself.[/b] A HUD wants to say
-## "in the start zone", a sound wants to play at a stage, and an anti-cheat wants to
-## know about a teleport — none of which the timer should have opinions about.
+## Fired the tick a player enters or leaves any zone, including the ones the timer acts on itself.
+## A HUD, a sound or an anti-cheat wants to know; the timer has no opinion.
 signal zone_entered(zone: DotTimerZone)
 signal zone_exited(zone: DotTimerZone)
 
 ## The zone asked for something the host has to do: a teleport, a respawn, a slay.
-##
-## [param zone] carries the destination and the payload. Emitted rather than acted on
-## for the reason in the class documentation.
+## [param zone] carries the destination and payload. Emitted, not acted on, for the reason in the class documentation.
 signal effect_requested(zone: DotTimerZone)
 
 ## The set of "while you are inside this" zones the player is in changed.
-##
-## Gravity, air acceleration, no-jump, auto-hop, freestyle, speed limits. The host
-## reads [method active_effects] and applies whatever it supports. One signal for the
-## whole set rather than one per kind, because they compose and a host applying them
-## one at a time has to work out what to undo.
+## One signal for the set, since effects compose and applying them singly leaves the host to work out what to undo.
 signal effects_changed()
 
-## Leaving the start did not begin a run, and why — "too fast", "you were not on the
-## ground long enough". Emitted rather than swallowed for the reason
-## [signal DotTimerManager.record_refused] is: "I left the start and nothing happened"
-## is a complaint the player could have been answered for.
+## Leaving the start did not begin a run, and why ("too fast", "not on the ground long enough").
+## Emitted, not swallowed, like [signal DotTimerManager.record_refused].
 signal start_refused(reason: String)
 
 ## Why a run stopped. StringNames rather than an enum so a game can add its own.
@@ -83,12 +47,8 @@ const REASON_PAUSE_EXPIRED := &"pause_expired"
 const REASON_NOCLIP := &"noclip"
 const REASON_AUTO_RESTART := &"auto_restart"
 
-## Zone kinds that ask the HOST to do something the moment the player enters one.
-##
-## [b]Distinct from [constant EFFECT_KINDS], which describe a condition while
-## inside.[/b] These fire once, on entry, through [signal effect_requested] — and the
-## timer never acts on any of them itself, because what "respawn" means is different
-## in a first-person game, a 2D game and a replay being scrubbed.
+## Zone kinds that ask the HOST to do something the moment the player enters one, through [signal effect_requested].
+## Distinct from [constant EFFECT_KINDS], which describe a condition while inside.
 const REQUEST_KINDS: Array[DotTimerZone.Kind] = [
 	DotTimerZone.Kind.RESPAWN,
 	DotTimerZone.Kind.SLAY,
@@ -132,30 +92,16 @@ var run: DotTimerRun = null
 ## Which track the player is attempting. Changing it stops a run in progress.
 var track: int = DotTimerTrack.MAIN
 
-## Whether this timer is the authority.
-##
-## [b]A client runs one too, and it must not file records.[/b] Predicting the timer
-## locally is what makes the HUD respond on the tick rather than a round trip later,
-## and it is also what would let a modified client announce a world record. The server
-## sets this; a client leaves it false and treats its own answer as a display.
+## Whether this timer is the authority. A client's timer must not file records.
+## The server sets this; a client leaves it false and treats its answer as a display, which keeps the HUD on the tick.
 var authoritative: bool = false
 
-## Whether a run must pass every stage line to be filed.
-##
-## On by default: a staged map's stage lines are the route, and a finish that skipped
-## one found a way round the map. A map that genuinely allows either of two routes says
-## so in its zone file ([code]meta.enforce_stages: false[/code]) — [DotTimerManager]
-## reads it — rather than every server turning the check off.
+## Whether a run must pass every stage line to be filed. On by default.
+## A map allowing two routes says so in its zone file ([code]meta.enforce_stages: false[/code]).
 var enforce_stages: bool = true
 
-## Metres moved in one tick that count as an unexplained teleport, stopping a run in
-## progress. 0 = off.
-##
-## Off by default because a host moves players for many legitimate reasons this timer
-## cannot see. A teleport this timer DID ask for (a respawn, a teleport zone, a checker)
-## is expected for two ticks, and [method expect_teleport] declares any other; anything
-## else that jumps further than this mid-run is an admin command, a desync or a cheat,
-## and none of those is a run.
+## Metres moved in one tick that count as an unexplained teleport, stopping a run in progress. 0 = off.
+## Off by default: a host moves players for reasons this timer cannot see. Asked-for teleports are expected for two ticks; see [method expect_teleport].
 var teleport_stop_distance: float = 0.0
 
 ## Rules a pause must clear. See [method pause_checked].
@@ -184,10 +130,8 @@ var _pause_ticks: int = 0
 ## The run begins when they LEAVE it, which needs the previous tick's answer.
 var _was_in_start: bool = false
 
-## Consecutive grounded ticks, and how long the last grounded stretch was when they left
-## the ground. The start rule asks the second: a player who jumped out of the start was
-## not grounded on the tick they left it, and what matters is whether they had stood
-## still before the jump.
+## Consecutive grounded ticks, and how long the last grounded stretch was when they left the ground.
+## The start rule asks the second: a player who jumped out was not grounded on that tick.
 var _ground_ticks: int = 0
 var _last_ground_streak: int = 0
 
@@ -234,15 +178,9 @@ func tick_interval() -> float:
 	return 1.0 / float(tick_rate)
 
 
-# --- The tick --------------------------------------------------------------
 
 ## Advances the timer by one simulated tick.
-##
-## [b]Call once per simulated tick, from the same loop the movement runs in.[/b] Not
-## from [code]_process[/code]: a timer sampled per frame counts a different number of
-## ticks on a 144 Hz monitor than on a 60 Hz one, and a player's time then depends on
-## their hardware. Not twice for a replayed tick either — see
-## [member DotFpsController.stats] for the same hazard on the other side.
+## Call once per simulated tick from the movement loop, never from [code]_process[/code]: a per-frame timer makes a time depend on the monitor.
 func tick(sample: DotTimerSample) -> void:
 	ticks_processed += 1
 
@@ -287,10 +225,7 @@ func tick(sample: DotTimerSample) -> void:
 		if zone.kind == DotTimerZone.Kind.START and zone.track == track:
 			_start_zone = zone
 		if zone.track != track:
-			# A zone belonging to another track is still reported as entered — a HUD
-			# and an anti-cheat both want to know — but it never affects this run.
-			# Without this a bonus finish line ends a main-track run, which is the
-			# most common way a hand-drawn zone file ruins a leaderboard.
+			# Another track's zone is reported as entered but never affects this run; else a bonus finish ends a main-track run.
 			continue
 
 		match zone.kind:
@@ -309,22 +244,11 @@ func tick(sample: DotTimerSample) -> void:
 			_:
 				pass
 
-	# [b]Back in the start zone is the end of the attempt.[/b] A run that is still going
-	# when its player stands in the start again is one they have given up on: every timer
-	# in this genre stops and zeroes the clock there, so the HUD reads 0 while they build
-	# their speed up again. Without this the old run kept counting until they LEFT the zone
-	# — and a style that refuses an air start never left it as far as the timer was
-	# concerned when they jumped out, so the stale run ran on past the start line.
+	# Back in the start zone ends the attempt (the HUD reads 0 again), instead of the stale run counting on until the player leaves.
 	if in_start and run.is_active():
 		_stop(REASON_RESET)
 
-	# Started on LEAVING the start zone, not on entering it.
-	#
-	# This is how every timer in this genre works and it is not arbitrary: the start
-	# zone is where a player builds their speed up, and timing from the moment they
-	# enter it would time their run-up. It also means the boundary is crossed exactly
-	# once per attempt, in a known direction, which is what makes the sub-tick
-	# fraction below meaningful.
+	# Started on LEAVING the start zone: entering would time the run-up, and it makes the crossing happen once, in a known direction.
 	if _was_in_start and not in_start:
 		_try_start(sample)
 
@@ -343,27 +267,12 @@ func tick(sample: DotTimerSample) -> void:
 
 	_carry(sample)
 
-	# Last, so the timer's own state for this tick is complete before the host is
-	# asked to move anybody: a respawn handler calls straight back in through
-	# `stop()`, and doing that halfway through a tick leaves the run counted against
-	# a position the timer has not carried forward yet.
+	# Last, so the timer's state is complete before the host moves anybody: a respawn handler calls back in through `stop()`.
 	_request_effects()
 
 
 ## Asks the host to act on the act-on-entry zones entered this tick.
-##
-## [b]This is the only thing that fires [signal effect_requested], and for a long
-## time nothing did.[/b] The signal was declared, the manager forwarded it, and both
-## games connected a handler — so a RESPAWN zone under a surf map did nothing at all
-## and a player who fell off fell for ever. Nothing errored: a zone kind the timer
-## has no rule for is a legitimate thing to find, and the whole design says the timer
-## must not act on one itself. The family's own pattern, in its commonest shape — a
-## value produced correctly and consumed by nothing, except that here it was the
-## other way round and nothing produced it.
-##
-## Once on entry, not every tick while inside. A respawn that re-fired each tick
-## would fight a host that moves the player over several frames, and a teleport that
-## did would be a loop for any two zones pointing at each other.
+## Once on entry, not every tick inside: a respawn that re-fired would fight a host that moves the player over several frames.
 func _request_effects() -> void:
 	if _entered.is_empty():
 		return
@@ -394,16 +303,11 @@ func _request_effects() -> void:
 
 
 ## Rolls this tick's position forward to be the next tick's "previous".
-##
-## [b]Owned by the timer, not by the host.[/b] The sub-tick crossing fraction is
-## computed from the segment between two ticks, so a host that maintained this itself
-## and got it wrong — updated it twice, or before the timer ran — would produce times
-## that are subtly and permanently wrong with nothing in the run to explain it.
+## Owned by the timer: a host that updated it twice or before the timer ran would give permanently wrong times.
 func _carry(sample: DotTimerSample) -> void:
 	sample.previous_position = sample.position
 
 
-# --- Membership and effects ------------------------------------------------
 
 func _diff_membership(current: Array[DotTimerZone]) -> void:
 	var now := {}
@@ -428,10 +332,7 @@ func _rebuild_effects(current: Array[DotTimerZone]) -> void:
 
 	for zone in current:
 		if zone.kind in EFFECT_KINDS:
-			# Last one wins on a tie, which for overlapping zones of the same kind is
-			# the highest id — the most recently drawn. A mapper correcting a gravity
-			# volume by drawing a new one over the old one gets the new one, which is
-			# what they meant.
+			# Last one wins on a tie, i.e. the highest id: a mapper correcting a volume by drawing a new one over it gets the new one.
 			next[zone.kind] = zone
 
 	if next.size() != _effects.size():
@@ -449,10 +350,7 @@ func _rebuild_effects(current: Array[DotTimerZone]) -> void:
 
 
 ## The "while you are inside this" zones in force, by [enum DotTimerZone.Kind].
-##
-## The host reads this on [signal effects_changed] and applies whatever it supports.
-## Kinds it does not understand are simply not applied, which is the correct behaviour
-## for a map that uses a zone type this game does not have.
+## The host applies what it supports; kinds it does not understand are simply not applied.
 func active_effects() -> Dictionary:
 	return _effects
 
@@ -468,10 +366,8 @@ func is_inside(kind: DotTimerZone.Kind) -> bool:
 	return _effects.has(kind)
 
 
-## Whether the player is standing in a zone of this kind on this run's track —
-## any kind, START and END included, which [method is_inside] does not answer.
-## The prespeed clamp asks this; asking [method is_inside] about START is always
-## false, and the clamp then never runs.
+## Whether the player is standing in a zone of this kind on this run's track, START and END included.
+## [method is_inside] answers for EFFECT zones only; the prespeed clamp needs this one.
 func in_zone(kind: DotTimerZone.Kind) -> bool:
 	for id in _inside:
 		var zone: DotTimerZone = _inside[id]
@@ -480,7 +376,6 @@ func in_zone(kind: DotTimerZone.Kind) -> bool:
 	return false
 
 
-# --- Starting and finishing ------------------------------------------------
 
 func _try_start(sample: DotTimerSample) -> void:
 	if not sample.alive:
@@ -522,11 +417,7 @@ func _try_start(sample: DotTimerSample) -> void:
 
 
 ## Why leaving the start does not begin a run, or "" if it does.
-##
-## The style's rules, overridden by the start zone's own payload where a mapper set one:
-## [code]"prespeed"[/code] (m/s), [code]"no_vertical"[/code] and
-## [code]"ground_seconds"[/code]. Every rule is waived below
-## [member DotTimerStyle.start_rules_below], for a start nobody can leave standing still.
+## The style's rules, overridden by the start zone's payload ([code]prespeed[/code], [code]no_vertical[/code], [code]ground_seconds[/code]); waived below [member DotTimerStyle.start_rules_below].
 func _start_refusal(sample: DotTimerSample) -> String:
 	if style == null:
 		return ""
@@ -594,22 +485,8 @@ func _try_stage(
 		stage_reached.emit(number, run.split_time(number))
 
 
-## Where along the last tick's movement the player crossed [param zone]'s boundary,
-## 0..1.
-##
-## [b]This is what makes a 64 Hz run comparable with a 128 Hz one.[/b] A timer that
-## counted whole ticks quantises every run to its tickrate: the same play is worth up
-## to 15 ms more on a 64 Hz server than on a 128 Hz one, and on a leaderboard sorted
-## to the millisecond the tickrate decides the ordering. The community timers solve
-## it the same
-## way, and it is the single most important line in the file for anybody who wants two
-## servers to share a records table.
-##
-## Linear along the segment, using the signed distance to the zone's surface. The
-## player's path within one tick is not exactly a straight line — gravity curves it —
-## but over 8 ms at plausible speeds the error is micrometres, and the alternative
-## (re-simulating the tick at a finer step) would have to be done identically on every
-## machine that ever recomputes the time.
+## Where along the last tick's movement the player crossed [param zone]'s boundary, 0..1.
+## Linear in the signed distance; the curve of gravity over one tick is micrometres, and re-simulating would have to be identical everywhere.
 func _crossing_fraction(
 	zone: DotTimerZone,
 	from: Vector3,
@@ -618,25 +495,8 @@ func _crossing_fraction(
 	var d_from := zone.signed_distance(from)
 	var d_to := zone.signed_distance(to)
 
-	# Both ends STRICTLY on the same side: the boundary was not crossed on this
-	# segment. The player was already through when the tick began — teleported in, or
-	# the zone is thinner than one tick of travel. Zero is the honest answer: no part
-	# of this tick is being discounted.
-	#
-	# [b]Strictly, and a distance of exactly zero is neither side.[/b] Zero IS the
-	# boundary, so it terminates the crossing at whichever end it is on. Folding it
-	# into "inside" — the obvious spelling, `d <= 0.0` — throws the whole fraction
-	# away in the one case that is not rare at all: a player whose per-tick step
-	# divides the distance to the line lands on it exactly, which with a fixed step
-	# and an axis-aligned zone happens on any course built out of round numbers.
-	# dot-timer's 2D suite caught it as every run being exactly one tick long, at
-	# both tickrates, which is precisely the tickrate-dependent error the fractions
-	# exist to remove.
-	#
-	# It cannot be fixed by choosing the other spelling either: a box is half-open —
-	# [method DotTimerZone.contains] includes its lower bound and excludes its
-	# upper — so a distance of zero is inside at one face and outside at the
-	# opposite one, and a signed distance cannot tell which face it is at.
+	# Both ends STRICTLY on one side: no crossing on this segment (teleported in, or a zone thinner than a tick), so nothing is discounted.
+	# Strictly: a distance of exactly zero IS the boundary, neither side. `d <= 0.0` discards the fraction when a round-number step lands on the line.
 	if (d_from > 0.0 and d_to > 0.0) or (d_from < 0.0 and d_to < 0.0):
 		return 0.0
 
@@ -656,7 +516,6 @@ func _style_id() -> StringName:
 	return style.id if style != null else &"normal"
 
 
-# --- Control ---------------------------------------------------------------
 
 ## Abandons any run in progress. Idempotent.
 func stop(reason: StringName = REASON_RESET) -> void:
@@ -689,10 +548,7 @@ func set_track(new_track: int) -> bool:
 
 
 ## Switches style. Any run in progress is abandoned.
-##
-## [b]Abandoned, not carried over.[/b] The style is an input to the movement, so half
-## a run under one style and half under another is a run on neither — and a player who
-## could switch to low gravity for the hard section would do exactly that.
+## Abandoned, not carried over: half a run under one style and half under another is a run on neither.
 func set_style(new_style: DotTimerStyle) -> bool:
 	var new_id: StringName = new_style.id if new_style != null else &"normal"
 
@@ -721,12 +577,7 @@ func resume() -> bool:
 
 
 ## Pauses the run if the rules allow it, keeping where the player was.
-##
-## [b]The rules are what stop a pause being a free checkpoint.[/b] Paused in the air
-## above a gap and resumed on the far side is a skip; paused at speed and resumed with
-## the speed is a free run-up. So: not in the start or the end, on the ground, nearly
-## still. The snapshot is what [method resume_checked] hands back for the host to put
-## the player at, so resuming always continues from exactly where the pause began.
+## The rules (not in start or end, grounded, nearly still) stop a pause being a free checkpoint or run-up; the snapshot is what [method resume_checked] hands back.
 func pause_checked(sample: DotTimerSample) -> DotResult:
 	if not run.is_running():
 		return DotResult.fail(DotError.CODE_STATE, "There is no run to pause.")
@@ -777,14 +628,8 @@ func restore_run(restored: DotTimerRun, at: Vector3 = Vector3.ZERO, velocity: Ve
 	return true
 
 
-## Marks the run as having used a practice checkpoint.
-##
-## [b]Sticky for the rest of the attempt.[/b] A run in which the player restored a
-## saved position is not a run, and clearing the flag when they stop using them would
-## let anybody file a record for the last thirty seconds of a map. On a style that
-## does not allow checkpoints at all, the run is abandoned instead — which is the
-## honest thing to do, because continuing to time a run that can never be filed just
-## wastes the player's next four minutes.
+## Marks the run as having used a practice checkpoint. Sticky for the rest of the attempt.
+## On a style that disallows checkpoints the run is abandoned instead, since it can never be filed.
 func note_checkpoint_used() -> void:
 	if not run.is_active():
 		return
@@ -802,15 +647,9 @@ func taint() -> void:
 		run.tainted = true
 
 
-# --- Filing a record -------------------------------------------------------
 
 ## Whether the finished run may be recorded, and why not if it may not.
-##
-## [b]Every one of these refusals exists because of a real exploit.[/b] The minimum
-## time stops a start and finish drawn close enough to touch producing an unbeatable
-## 0.02 second world record. The checkpoint and taint flags stop a segmented or
-## assisted run being filed as a clean one. The zone fingerprint stops a record set
-## before a finish line moved being compared with one set after.
+## Each refusal exists because of a real exploit: minimum time, checkpoint and taint flags, zone fingerprint.
 func can_record(finished: DotTimerRun) -> DotResult:
 	if not authoritative:
 		return DotResult.fail(

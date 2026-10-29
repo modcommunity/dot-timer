@@ -2,21 +2,7 @@
 class_name DotTimerZoneVolume3D
 extends Node3D
 
-## A zone drawn in the 3D editor instead of in a JSON file.
-##
-## [b]Both ways of authoring a zone are needed, and they are not alternatives.[/b] A
-## mapper building a level in Godot wants to place a start line the way they place
-## everything else: a node, in the scene, moved with the gizmo. A server operator
-## adding a bonus to somebody else's map has no scene to open and needs
-## [DotTimerZonePainter] and a console. So this node exists to be [i]exported[/i] into
-## the same [DotTimerZoneSet] the painter writes — one format, two ways in.
-##
-## [codeblock]
-## # in the map's own script
-## var set := DotTimerZoneVolume3D.collect(self, &"surf_beginner")
-## timer_manager.set_zones(set)
-## [/codeblock]
-##
+## A zone drawn in the 3D editor instead of in a JSON file; exported into the same [DotTimerZoneSet] the painter writes.
 ## Draws itself in the editor and does nothing at runtime.
 
 ## What the zone is. See [enum DotTimerZone.Kind].
@@ -29,11 +15,7 @@ extends Node3D
 @export_range(0, 8, 1) var track: int = DotTimerTrack.MAIN
 
 ## Size of the box, in metres, centred on this node.
-##
-## [b]A size rather than two corners[/b] so the node can be moved and rotated in the
-## editor like anything else. The exported zone is axis-aligned — see
-## [method to_zone] — because zone tests happen a hundred thousand times a second and
-## an oriented box costs a matrix multiply each time.
+## A size, so the node moves and rotates like any other; the exported zone is axis-aligned (see [method to_zone]).
 @export var size: Vector3 = Vector3(4.0, 4.0, 4.0):
 	set(value):
 		size = value.abs().maxf(0.01)
@@ -53,14 +35,8 @@ extends Node3D
 @export_multiline var comment: String = ""
 
 
-## The zone this node describes, in world space.
-##
-## [b]Axis-aligned, from the node's world-space bounds.[/b] A rotated node produces
-## the box that contains it, which is larger than what was drawn — so a rotated start
-## line begins the run slightly early. That is a deliberate trade against making every
-## zone test an oriented-box test: the alternative is a per-tick matrix multiply per
-## player per zone, and every timer in this genre has used axis-aligned boxes for
-## twenty years. Rotate the geometry, not the zone.
+## The zone this node describes, in world space: axis-aligned, from the node's world-space bounds.
+## A rotated node gives the containing box, slightly larger; an oriented-box test per player per zone per tick costs too much. Rotate the geometry, not the zone.
 func to_zone() -> DotTimerZone:
 	var zone := DotTimerZone.make(kind, track)
 
@@ -93,9 +69,7 @@ func to_zone() -> DotTimerZone:
 
 
 ## Builds a zone set from every [DotTimerZoneVolume3D] under [param root].
-##
-## Order is the tree's, so the ids a set is built with are stable as long as the scene
-## is — which matters because a replay's crossing marks name zones by id.
+## Order is the tree's, so ids are stable while the scene is; a replay's crossing marks name zones by id.
 static func collect(root: Node, map_id: StringName) -> DotTimerZoneSet:
 	var set := DotTimerZoneSet.new()
 	set.map_id = map_id
@@ -113,13 +87,8 @@ static func _collect_into(node: Node, set: DotTimerZoneSet) -> void:
 		_collect_into(child, set)
 
 
-# --- Editor drawing --------------------------------------------------------
 
-## A colour per kind, so a map full of zones is readable at a glance.
-##
-## Green starts, red finishes, yellow stages: the convention every timer's zone editor
-## has used, and worth matching rather than inventing — a mapper who has drawn zones
-## before already knows it.
+## A colour per kind: green starts, red finishes, yellow stages, the convention every zone editor uses.
 static func colour_for(k: DotTimerZone.Kind) -> Color:
 	match k:
 		DotTimerZone.Kind.START:

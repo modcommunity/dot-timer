@@ -1,14 +1,7 @@
 extends Node
 
-## The SQL store against a real database, through dot-sql's gateway.
-##
-## The same contract the memory and file stores pass (`timer_store_contract.gd`), then
-## what only a shared database can show: two servers writing one board, and the cache.
-## Run by dot-sql's runner, once per dialect:
-##
-## [codeblock]
-## ../dot-sql/tools/test_live.sh . res://examples/timer_sql_live.tscn
-## [/codeblock]
+## The SQL store against a real database, through dot-sql's gateway: the shared contract (`timer_store_contract.gd`), then two servers on one board and the cache.
+## Run by dot-sql's runner once per dialect: [code]../dot-sql/tools/test_live.sh . res://examples/timer_sql_live.tscn[/code].
 
 const Contract := preload("res://examples/timer_store_contract.gd")
 
@@ -38,7 +31,6 @@ func _ready() -> void:
 
 	await Contract.new().run(a, _check)
 
-	# --- two servers, one board ------------------------------------------------
 	var b := await _store("dot_tlive_")
 	await a.put(Contract.rec(&"zed", 40.0))
 	await b.best_for(Contract.M, 0, &"normal", &"zed")   # b caches zed at 40
@@ -49,7 +41,6 @@ func _ready() -> void:
 	var count_res: DotResult = await a.count_on(Contract.M, 0, &"normal")
 	_check("and the board still has one row for the player", count_res.ok and int(count_res.value) == 1)
 
-	# --- the cache ---------------------------------------------------------------
 	var c := await _store("dot_tlive_")
 	c.cache_seconds = 30.0
 	await c.top(Contract.M, 0, &"normal", 10)
@@ -73,7 +64,6 @@ func _ready() -> void:
 	await c.top(Contract.M, 0, &"normal", 10)
 	_check("with the cache off every read goes to the database", c.queries == q + 2)
 
-	# --- a manager on SQL ----------------------------------------------------------
 	var manager := DotTimerManager.new()
 	manager.authoritative = true
 	manager.tick_rate = 128

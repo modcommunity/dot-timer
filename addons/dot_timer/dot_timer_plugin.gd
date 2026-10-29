@@ -2,11 +2,7 @@
 extends EditorPlugin
 
 ## Editor entry point for dot-timer. Registers inspector types only.
-##
-## No autoloads, for the family reason and for one of this addon's own: a dedicated
-## server runs a timer per player, a replay viewer runs another over the same map, and
-## a test harness runs thirty in one process. A singleton timer makes all three
-## impossible.
+## No autoloads: a server runs a timer per player and a test harness thirty in one process.
 
 const _ICON := "res://addons/dot_timer/icon_placeholder.svg"
 

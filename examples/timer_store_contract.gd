@@ -1,18 +1,7 @@
 extends RefCounted
 
-## What every [DotTimerStore] must do, as one script run against all of them.
-##
-## [b]One contract, three stores.[/b] The memory store is the reference; the file store
-## is that plus a disk; the SQL store is the same answers from three databases. Writing
-## the checks once and running them against each is the only way the three cannot drift
-## — a second copy of a check is a second place for the expected rank to be wrong. The
-## self-test runs it against memory and file; `timer_sql_live` runs it against SQLite,
-## Postgres and MySQL through dot-sql's gateway.
-##
-## [codeblock]
-## var contract := preload("res://examples/timer_store_contract.gd").new()
-## await contract.run(store, _check)   # _check(what: String, passed: bool)
-## [/codeblock]
+## What every [DotTimerStore] must do, as one script run against all of them (memory, file, and SQL through dot-sql).
+## Usage: [code]await contract.run(store, _check)[/code] with [code]_check(what: String, passed: bool)[/code].
 
 ## How many checks [method run] makes, so a caller can count them in.
 const CHECKS := 47
@@ -41,7 +30,6 @@ static func rec(player: StringName, time: float, style: StringName = &"normal", 
 func run(store: DotTimerStore, check: Callable) -> void:
 	_check = check
 
-	# --- filing ---------------------------------------------------------------
 	var first: DotResult = await store.put(rec(&"alice", 30.0))
 	_c("a first finish is filed", first.ok and bool(first.value["improved"]))
 	_c("with no previous best and no previous record", first.ok and first.value["previous"] == null and first.value["previous_record"] == null)
@@ -65,7 +53,6 @@ func run(store: DotTimerStore, check: Callable) -> void:
 	await store.put(rec(&"carol", 40.0))
 	await store.put(rec(&"dave", 27.0))
 
-	# --- the board ------------------------------------------------------------
 	var top: DotResult = await store.top(M, 0, &"normal", 10)
 	var order := []
 	for r in (top.value as Array) if top.ok else []:
@@ -86,7 +73,6 @@ func run(store: DotTimerStore, check: Callable) -> void:
 	var counted: DotResult = await store.count_on(M, 0, &"normal")
 	_c("the board counts its players", counted.ok and int(counted.value) == 4)
 
-	# --- sections and other boards ---------------------------------------------
 	await store.put(rec(&"bob", 9.5, &"normal", 0, 2))
 	var section_count: DotResult = await store.count_on(M, 0, &"normal", 2)
 	var whole_count: DotResult = await store.count_on(M, 0, &"normal")
@@ -96,7 +82,6 @@ func run(store: DotTimerStore, check: Callable) -> void:
 	_c("and so is another style", other_style.ok and int(other_style.value) == 1)
 	await store.put(rec(&"alice", 12.0, &"normal", 1))
 
-	# --- points ---------------------------------------------------------------
 	var scored := [rec(&"alice", 25.0), rec(&"bob", 27.0), rec(&"alice", 12.0, &"normal", 1), rec(&"alice", 50.0, &"sideways")]
 	scored[0].points = 100.0
 	scored[1].points = 90.0
@@ -125,14 +110,12 @@ func run(store: DotTimerStore, check: Callable) -> void:
 	var on_map: DotResult = await store.records_on_map(M)
 	_c("a map's records include its sections", on_map.ok and (on_map.value as Array).size() == 7)
 
-	# --- history --------------------------------------------------------------
 	var latest: DotResult = await store.recent(10)
 	var first_latest: Dictionary = latest.value[0] if latest.ok and not (latest.value as Array).is_empty() else {}
 	_c("the latest records are newest first and only records", latest.ok and not first_latest.is_empty() and bool(first_latest["was_record"]) and (first_latest["record"] as DotTimerRecord).player_id == &"alice")
 	var everything: DotResult = await store.recent(50, {"records_only": false})
 	_c("every improvement is in the history, sections excluded by default", everything.ok and (everything.value as Array).size() == 7)
 
-	# --- players, maps, progress, saved runs -------------------------------------
 	await store.note_player(&"erin", "Erin", 1790000000)
 	await store.note_player(&"erin", "Erin B", 1790000100, 30.0)
 	await store.note_player(&"erin", "", 1790000200, 15.5)
@@ -159,12 +142,10 @@ func run(store: DotTimerStore, check: Callable) -> void:
 	var again: DotResult = await store.take_resume(&"erin", M)
 	_c("a saved run comes back once", taken.ok and taken.value is Dictionary and int(taken.value["ticks"]) == 500 and again.ok and again.value == null)
 
-	# --- the synchronous half ---------------------------------------------------
 	await store.best_for(M, 0, &"normal", &"bob")
 	var peeked: Variant = store.peek_best(M, 0, &"normal", &"bob")
 	_c("a best already read can be peeked without waiting", peeked is DotTimerRecord and is_equal_approx((peeked as DotTimerRecord).time, 27.0))
 
-	# --- removal ----------------------------------------------------------------
 	var removed: DotResult = await store.remove(M, 0, &"normal", &"carol")
 	var after_remove: DotResult = await store.count_on(M, 0, &"normal")
 	_c("a record can be removed", removed.ok and bool(removed.value) and after_remove.ok and int(after_remove.value) == 3)
@@ -191,11 +172,8 @@ func run(store: DotTimerStore, check: Callable) -> void:
 	_c("a time keeps every digit, and ranks as itself right after filing", precise_rank.ok and int(precise_rank.value) == 1 and precise_best.ok and precise_best.value is DotTimerRecord and (precise_best.value as DotTimerRecord).time == 25.123456789012345)
 	await store.wipe_map(&"precise_map")
 
-	# The catalogue lists maps by id as text, which is what SQL's ORDER BY gives. Godot
-	# orders StringNames by where they were interned, so a memory store sorting its
-	# StringName keys with sort() listed `!mapsleft` in a different order from the SQL
-	# store, and from itself in the next process. Random lowercase ids, filed out of
-	# order, so neither order can pass by accident; a-z only, so every collation agrees.
+	# The catalogue lists maps by id as text (SQL's ORDER BY); Godot orders StringNames by interning, so a memory store's sort() listed differently.
+	# Random lowercase a-z ids filed out of order, so no order passes by accident and every collation agrees.
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 20261011
 	var filed: Array[String] = []

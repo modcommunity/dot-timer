@@ -2,37 +2,7 @@ class_name DotTimerStore
 extends RefCounted
 
 ## Where records live. Subclass to put them somewhere else.
-##
-## [b]Await every call, including the ones that do not need it.[/b] The memory store
-## answers instantly; the SQL store crosses a network. An interface written against the
-## fast case has to be rewritten the first time somebody points it at a database — the
-## family's own history has that mistake in it twice — so every caller writes
-## [code]await store.top(...)[/code], which costs nothing against a store that returns
-## at once and is correct against one that does not.
-##
-## [b]Except the two [code]peek_[/code] methods[/b], which are synchronous on purpose: a
-## HUD draws every frame and cannot wait on a database. They answer from whatever the
-## store already holds — everything, for the memory store; a cache, for the SQL store —
-## and a null means "not known yet", never "nobody has a time".
-##
-## [b]A store never decides whether a record is allowed.[/b] It writes what it is given.
-## Whether a run is fast enough, clean enough and on a ranked style is
-## [method DotTimer.can_record], which runs on the authoritative timer where the run
-## actually happened — a check inside the store would have to be repeated in every
-## implementation and would be missing from somebody's.
-##
-## [b]A board is (map, track, style, stage).[/b] Stage 0 is the whole run; stage
-## [code]k[/code] is section [code]k[/code] of a staged map (see
-## [member DotTimerRecord.stage]). Every board query takes the stage last, defaulting to
-## the whole run, so a caller that has never heard of sections is unchanged.
-##
-## [b]Ranks are shared by ties.[/b] Two identical times are both rank 3, and the next is
-## rank 5. Awarding the older one the better rank is a rule nobody agreed to, and the
-## site ranks the same way.
-##
-## Shipped: [DotTimerStoreMemory] (tests, a scratch server, and the reference
-## implementation), [DotTimerStoreFile] (JSON files), [DotTimerStoreSql] (SQLite,
-## Postgres or MySQL through a dot-sql driver).
+## Await every call, even where it is not needed (except the two [code]peek_[/code] methods, which a HUD reads synchronously); a store never decides whether a record is allowed.
 
 # No log channel: an abstract interface. Every implementation logs its own trouble, and
 # a failed put() is logged by DotTimerManager._file, its one caller.
@@ -41,22 +11,9 @@ extends RefCounted
 const HISTORY_LIMIT := 2000
 
 
-# --- Boards ----------------------------------------------------------------
 
-## Files a finish. Returns a [Dictionary]:
-##
-## [codeblock]
-## {
-##     "previous": DotTimerRecord or null,  # the player's best before this run
-##     "improved": bool,                     # whether this run replaced it
-##     "previous_record": DotTimerRecord or null,  # the board's #1 before this run
-##     "completions": int,                   # finishes on this board, this one included
-## }
-## [/codeblock]
-##
-## [b]Every finish is counted, kept or not.[/b] A slower run does not replace the row but
-## does bump its completion count — the only place that sees every finish is the store.
-## An improvement is also written to the history [method recent] reads.
+## Files a finish. Returns a [Dictionary] with [code]previous[/code], [code]improved[/code], [code]previous_record[/code] and [code]completions[/code].
+## Every finish is counted, kept or not: only the store sees them all. An improvement also goes to the history [method recent] reads.
 func put(_record: DotTimerRecord) -> DotResult:
 	return _unsupported("put")
 
@@ -70,10 +27,7 @@ func top(
 
 
 ## One player's record on a board, or a success carrying null.
-##
-## [b]Absent is not an error.[/b] A player who has never finished a map is the normal
-## case, and making it a failure means every caller has to tell "no record" from "the
-## database is down" by inspecting an error code — which somebody will not do.
+## Absent is not an error: a failure would make every caller tell "no record" from "database down" by error code.
 func best_for(
 	_map_id: StringName, _track: int, _style_id: StringName,
 	_player_id: StringName, _stage: int = 0
@@ -90,9 +44,7 @@ func rank_of(
 
 
 ## The rank a time WOULD have on a board: one more than the number strictly faster.
-##
-## What a practice run, a slower run and a run on an unranked style are told — "that
-## would have been 4th" — without anything being filed.
+## What a practice or unranked run is told ("that would have been 4th") without anything being filed.
 func rank_for_time(
 	_map_id: StringName, _track: int, _style_id: StringName,
 	_time: float, _stage: int = 0
@@ -136,22 +88,13 @@ func records_on_map(_map_id: StringName) -> DotResult:
 
 
 ## How many whole-run boards [param player_id] holds rank 1 on. A tie for first counts.
-##
-## [param filter] as for [method records_of]; [code]stage[/code] -1 counts section
-## records too.
+## [param filter] as for [method records_of]; [code]stage[/code] -1 counts section records too.
 func record_count(_player_id: StringName, _filter: Dictionary = {}) -> DotResult:
 	return _unsupported("record_count")
 
 
-## The latest improvements, newest first: an [Array] of [Dictionary]
-## [code]{record, previous_time, previous_record_time, was_record}[/code].
-##
-## [param filter] may carry [code]map[/code], [code]track[/code], [code]style[/code],
-## [code]stage[/code] and [code]records_only[/code] (default true: only runs that took
-## first place when they were set — "latest records", not "latest finishes").
-##
-## A history, not a view of the boards: a record since beaten is still listed, with the
-## time it was, because "who held it before" is half of what this list is for.
+## The latest improvements, newest first: [code]{record, previous_time, previous_record_time, was_record}[/code] dictionaries.
+## [param filter] may carry map, track, style, stage and [code]records_only[/code] (default true). A history, not a view: a record since beaten still lists.
 func recent(_limit: int = 20, _filter: Dictionary = {}) -> DotResult:
 	return _unsupported("recent")
 
@@ -174,7 +117,6 @@ func wipe_map(_map_id: StringName) -> DotResult:
 	return _unsupported("wipe_map")
 
 
-# --- Players ---------------------------------------------------------------
 
 ## Notes that a player was here: their current name, when, and play time to add.
 func note_player(
@@ -189,14 +131,8 @@ func player_info(_player_id: StringName) -> DotResult:
 	return _unsupported("player_info")
 
 
-## Recomputes the points totals of [param player_ids] from their records.
-##
-## [param weighting] is the decay applied down a player's own list, best first: the
-## total is [code]sum(points[i] * weighting^i)[/code], so a hundred mediocre clears are
-## worth less than a handful of great ones. 1.0 is a plain sum. [param limit] caps how
-## many of a player's records count; 0 counts them all.
-##
-## [b]Whole runs only.[/b] Section records are a separate ranking and earn nothing here.
+## Recomputes the points totals of [param player_ids] from their records, whole runs only.
+## Total is [code]sum(points[i] * weighting^i)[/code], best first; 1.0 is a plain sum. [param limit] caps how many count, 0 = all.
 func refresh_player_points(
 	_player_ids: Array, _weighting: float = 1.0, _limit: int = 0
 ) -> DotResult:
@@ -214,7 +150,6 @@ func player_rank(_player_id: StringName) -> DotResult:
 	return _unsupported("player_rank")
 
 
-# --- Maps ------------------------------------------------------------------
 
 ## Records what a map is: [code]{map, tier, stages, bonuses, ranked, mapper, info}[/code].
 ## Upserted — a map's zones being reloaded is the normal way this is called.
@@ -231,7 +166,6 @@ func maps() -> DotResult:
 	return _unsupported("maps")
 
 
-# --- Progress --------------------------------------------------------------
 
 ## Adds to a player's effort on a board: attempts started, seconds spent running, and
 ## whether this was a finish. The first finish also fixes how long it took to get one.
@@ -250,7 +184,6 @@ func progress_for(
 	return _unsupported("progress_for")
 
 
-# --- Saved runs ------------------------------------------------------------
 
 ## Keeps a run in progress for a player who dropped, to give back when they return.
 func save_resume(_player_id: StringName, _map_id: StringName, _state: Dictionary) -> DotResult:
@@ -262,7 +195,6 @@ func take_resume(_player_id: StringName, _map_id: StringName) -> DotResult:
 	return _unsupported("take_resume")
 
 
-# --- Synchronous reads for a HUD -------------------------------------------
 
 ## The top of a board from what the store already holds, or null if it does not know.
 ## Never waits. The SQL store also starts fetching it, so the next call knows.

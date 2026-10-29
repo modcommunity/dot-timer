@@ -10,4 +10,5 @@ The reasoning behind the timer, one subject per file. [CLAUDE.md](../CLAUDE.md) 
 | [replays.md](replays.md) | The container and format 2, playback, the recorder, writing to disk |
 | [hud.md](hud.md) | `DotTimerHud` and `DotTimerSplitsPanel`: layout, the `Placement` name, the plate, the stage-splits sidebar, looking at them |
 | [testing.md](testing.md) | The four suites and what each lesson here says to test |
+| [rationale.md](rationale.md) | Long reasoning moved out of code comments, per source file |
 | [history.md](history.md) | The bugs, and how each looked |
