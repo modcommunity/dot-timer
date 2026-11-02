@@ -340,6 +340,29 @@ func _test_the_third_axis_trap() -> void:
 	_done()
 
 
+func _check_2d_replay_round_trip(player: DotTimerManager.Player) -> void:
+	if player == null or player.last_replay == null:
+		return
+
+	var bytes := player.last_replay.to_bytes()
+	var back := DotTimerReplay.from_bytes(bytes)
+
+	_check(back.ok, "which round-trips through the same container 3D uses")
+
+	if back.ok:
+		var frames: Array[DotTimerReplay.Frame] = (
+			back.value as DotTimerReplay
+		).frames
+		_check(
+			frames.size() == player.last_replay.frames.size(),
+			"with every frame"
+		)
+		_check(
+			absf(frames[frames.size() - 1].position.z) < 0.01,
+			"and the unused third axis costs nothing but stays zero"
+		)
+
+
 func _test_a_2d_record() -> void:
 	_section("a 2D record")
 
@@ -393,24 +416,7 @@ func _test_a_2d_record() -> void:
 		"and a replay was recorded from 2D positions"
 	)
 
-	if player != null and player.last_replay != null:
-		var bytes := player.last_replay.to_bytes()
-		var back := DotTimerReplay.from_bytes(bytes)
-
-		_check(back.ok, "which round-trips through the same container 3D uses")
-
-		if back.ok:
-			var frames: Array[DotTimerReplay.Frame] = (
-				back.value as DotTimerReplay
-			).frames
-			_check(
-				frames.size() == player.last_replay.frames.size(),
-				"with every frame"
-			)
-			_check(
-				absf(frames[frames.size() - 1].position.z) < 0.01,
-				"and the unused third axis costs nothing but stays zero"
-			)
+	_check_2d_replay_round_trip(player)
 
 	var top: DotResult = manager.store.top(&"course_2d", 0, &"normal", 10)
 	_check(

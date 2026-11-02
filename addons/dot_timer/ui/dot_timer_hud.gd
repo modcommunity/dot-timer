@@ -355,8 +355,13 @@ func _draw() -> void:
 		else:
 			_draw_rounded(Rect2(origin, plate), panel_radius, panel_colour)
 
-	# The text's own top-left, inside the plate.
-	var at := origin + padding
+	_draw_rows(rows, widths, heights, block, origin + padding)
+
+
+func _draw_rows(
+	rows: Array, widths: PackedFloat32Array, heights: PackedFloat32Array,
+	block: Vector2, at: Vector2
+) -> void:
 	var y := at.y
 
 	for i in range(rows.size()):

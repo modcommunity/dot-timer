@@ -1156,15 +1156,7 @@ func _test_splits_snapshot() -> void:
 	panel.size = Vector2(1600.0, 900.0)
 	add_child(panel)
 
-	# 1. The delta keeps the tens digit and drops only a leading zero.
-	_check(panel._delta(0.4) == "+0.400", "delta 0.4", panel._delta(0.4))
-	_check(panel._delta(2.3) == "+2.300", "delta 2.3", panel._delta(2.3))
-	_check(panel._delta(12.3) == "+12.300", "delta 12.3 keeps the tens digit", panel._delta(12.3))
-	_check(panel._delta(59.9) == "+59.900", "delta 59.9", panel._delta(59.9))
-	_check(panel._delta(75.0) == "+1:15.000", "delta 75 is minutes", panel._delta(75.0))
-	_check(panel._delta(-0.4) == "-0.400", "delta -0.4", panel._delta(-0.4))
-	_check(panel._delta(-12.3) == "-12.300", "delta -12.3", panel._delta(-12.3))
-	_check(panel._delta(-75.0) == "-1:15.000", "delta -75", panel._delta(-75.0))
+	_check_splits_delta_text(panel)
 
 	# 2. A reference refreshed mid-run or after the finish applies to the next run.
 	var cmp := {1: 10.0, 2: 25.0, 3: 40.0}
@@ -1226,6 +1218,25 @@ func _test_splits_snapshot() -> void:
 		"the live segment moves with it", panel.footer_lines()[3]
 	)
 
+	_check_splits_without_run(cmp, best)
+
+	panel.queue_free()
+	_done()
+
+
+func _check_splits_delta_text(panel: DotTimerSplitsPanel) -> void:
+	# 1. The delta keeps the tens digit and drops only a leading zero.
+	_check(panel._delta(0.4) == "+0.400", "delta 0.4", panel._delta(0.4))
+	_check(panel._delta(2.3) == "+2.300", "delta 2.3", panel._delta(2.3))
+	_check(panel._delta(12.3) == "+12.300", "delta 12.3 keeps the tens digit", panel._delta(12.3))
+	_check(panel._delta(59.9) == "+59.900", "delta 59.9", panel._delta(59.9))
+	_check(panel._delta(75.0) == "+1:15.000", "delta 75 is minutes", panel._delta(75.0))
+	_check(panel._delta(-0.4) == "-0.400", "delta -0.4", panel._delta(-0.4))
+	_check(panel._delta(-12.3) == "-12.300", "delta -12.3", panel._delta(-12.3))
+	_check(panel._delta(-75.0) == "-1:15.000", "delta -75", panel._delta(-75.0))
+
+
+func _check_splits_without_run(cmp: Dictionary, best: Dictionary) -> void:
 	# No run at all: set_reference first, then show_run(null), must not error.
 	var bare := DotTimerSplitsPanel.new()
 	bare.size = Vector2(1600.0, 900.0)
@@ -1238,9 +1249,6 @@ func _test_splits_snapshot() -> void:
 		"set_reference and show_run(null) work with no run", bare.row_time(1)
 	)
 	bare.queue_free()
-
-	panel.queue_free()
-	_done()
 
 
 func _test_other_track_ignored() -> void:
@@ -1656,9 +1664,14 @@ func _test_store() -> void:
 	)
 	_check(int(store.count_on(&"m", 0, &"normal").value) == 3, "and the board counts three")
 
+	_check_store_ties_and_styles(store)
+	_done()
+
+
+func _check_store_ties_and_styles(store: DotTimerStoreMemory) -> void:
 	# A tie does not displace the incumbent: an equal time is not an improvement.
 	store.put(_record(&"dave", 25.0))
-	top = store.top(&"m", 0, &"normal", 10)
+	var top := store.top(&"m", 0, &"normal", 10)
 	_check(
 		(top.value[0] as DotTimerRecord).player_id == &"alice"
 		or (top.value[0] as DotTimerRecord).time == 25.0,
@@ -1687,7 +1700,6 @@ func _test_store() -> void:
 		int(store.count_on(&"m", 0, &"sideways").value) == 1,
 		"and appears on its own"
 	)
-	_done()
 
 
 func _test_store_filenames() -> void:
@@ -2283,7 +2295,11 @@ func _test_replay_round_trip() -> void:
 		"%.1f bytes" % per_frame
 	)
 
-	# Refusals.
+	_check_replay_refusals(bytes, replay)
+	_done()
+
+
+func _check_replay_refusals(bytes: PackedByteArray, replay: DotTimerReplay) -> void:
 	_check(
 		not DotTimerReplay.from_bytes(PackedByteArray([1, 2, 3])).ok,
 		"a short buffer is refused"
@@ -2302,7 +2318,6 @@ func _test_replay_round_trip() -> void:
 		DotTimerReplay.from_bytes(lying.slice(0, 40)).ok == false,
 		"and a truncated file is refused rather than half-read"
 	)
-	_done()
 
 
 func _test_replay_playback() -> void:
@@ -2625,6 +2640,13 @@ func _test_replay_flags() -> void:
 	_check(last != null and ducked > 0 and pressed == last.frames.size(), "the manager records the caller's flags and buttons",
 		"%d ducked, %d with buttons of %d" % [ducked, pressed, last.frames.size() if last != null else 0])
 
+	_check_v1_replay_reads()
+
+	manager.queue_free()
+	_done()
+
+
+func _check_v1_replay_reads() -> void:
 	# A version-1 file (no start/end, no buttons byte) still reads.
 	var v1 := StreamPeerBuffer.new()
 	v1.big_endian = false
@@ -2647,9 +2669,6 @@ func _test_replay_flags() -> void:
 	var old := DotTimerReplay.from_bytes(v1.data_array)
 	_check(old.ok and (old.value as DotTimerReplay).frames.size() == 1 and (old.value as DotTimerReplay).start_frame == 0,
 		"and a version-1 replay still reads", str(old.error) if not old.ok else "")
-
-	manager.queue_free()
-	_done()
 
 
 func _test_replay_ceiling() -> void:

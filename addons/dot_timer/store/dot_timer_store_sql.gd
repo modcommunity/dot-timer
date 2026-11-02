@@ -76,79 +76,99 @@ func table_specs() -> Array:
 				{"name": "player", "columns": ["player", "stage", "points"]},
 			],
 		},
-		{
-			"name": table("history"),
-			"columns": [
-				{"name": "map", "type": "key", "null": false},
-				{"name": "track", "type": "int", "null": false, "default": 0},
-				{"name": "style", "type": "key", "null": false},
-				{"name": "stage", "type": "int", "null": false, "default": 0},
-				{"name": "player", "type": "key", "null": false},
-				{"name": "set_at", "type": "bigint", "null": false},
-				{"name": "time", "type": "real", "null": false},
-				{"name": "previous_time", "type": "real", "null": false, "default": -1},
-				{"name": "record_time_before", "type": "real", "null": false, "default": -1},
-				{"name": "was_record", "type": "bool", "null": false, "default": false},
-				{"name": "data", "type": "json"},
-			],
-			"primary_key": ["map", "track", "style", "stage", "player", "set_at"],
-			"indexes": [
-				{"name": "latest", "columns": ["was_record", "set_at"]},
-				{"name": "when_set", "columns": ["set_at"]},
-			],
-		},
-		{
-			"name": table("players"),
-			"columns": [
-				{"name": "player", "type": "key", "null": false},
-				{"name": "name", "type": "text"},
-				{"name": "points", "type": "real", "null": false, "default": 0},
-				{"name": "first_seen", "type": "bigint", "null": false, "default": 0},
-				{"name": "last_seen", "type": "bigint", "null": false, "default": 0},
-				{"name": "playtime", "type": "real", "null": false, "default": 0},
-			],
-			"primary_key": ["player"],
-			"indexes": [{"name": "points", "columns": ["points"]}],
-		},
-		{
-			"name": table("maps"),
-			"columns": [
-				{"name": "map", "type": "key", "null": false},
-				{"name": "tier", "type": "int", "null": false, "default": 1},
-				{"name": "stages", "type": "int", "null": false, "default": 0},
-				{"name": "bonuses", "type": "int", "null": false, "default": 0},
-				{"name": "ranked", "type": "bool", "null": false, "default": true},
-				{"name": "mapper", "type": "text"},
-				{"name": "info", "type": "json"},
-				{"name": "updated_at", "type": "bigint", "null": false, "default": 0},
-			],
-			"primary_key": ["map"],
-		},
-		{
-			"name": table("progress"),
-			"columns": [
-				{"name": "player", "type": "key", "null": false},
-				{"name": "map", "type": "key", "null": false},
-				{"name": "track", "type": "int", "null": false, "default": 0},
-				{"name": "style", "type": "key", "null": false},
-				{"name": "attempts", "type": "int", "null": false, "default": 0},
-				{"name": "completions", "type": "int", "null": false, "default": 0},
-				{"name": "time_spent", "type": "real", "null": false, "default": 0},
-				{"name": "time_to_first", "type": "real", "null": false, "default": -1},
-			],
-			"primary_key": ["player", "map", "track", "style"],
-		},
-		{
-			"name": table("resume"),
-			"columns": [
-				{"name": "player", "type": "key", "null": false},
-				{"name": "map", "type": "key", "null": false},
-				{"name": "state", "type": "json"},
-				{"name": "saved_at", "type": "bigint", "null": false, "default": 0},
-			],
-			"primary_key": ["player", "map"],
-		},
+		_history_spec(),
+		_players_spec(),
+		_maps_spec(),
+		_progress_spec(),
+		_resume_spec(),
 	]
+
+
+func _history_spec() -> Dictionary:
+	return {
+		"name": table("history"),
+		"columns": [
+			{"name": "map", "type": "key", "null": false},
+			{"name": "track", "type": "int", "null": false, "default": 0},
+			{"name": "style", "type": "key", "null": false},
+			{"name": "stage", "type": "int", "null": false, "default": 0},
+			{"name": "player", "type": "key", "null": false},
+			{"name": "set_at", "type": "bigint", "null": false},
+			{"name": "time", "type": "real", "null": false},
+			{"name": "previous_time", "type": "real", "null": false, "default": -1},
+			{"name": "record_time_before", "type": "real", "null": false, "default": -1},
+			{"name": "was_record", "type": "bool", "null": false, "default": false},
+			{"name": "data", "type": "json"},
+		],
+		"primary_key": ["map", "track", "style", "stage", "player", "set_at"],
+		"indexes": [
+			{"name": "latest", "columns": ["was_record", "set_at"]},
+			{"name": "when_set", "columns": ["set_at"]},
+		],
+	}
+
+
+func _players_spec() -> Dictionary:
+	return {
+		"name": table("players"),
+		"columns": [
+			{"name": "player", "type": "key", "null": false},
+			{"name": "name", "type": "text"},
+			{"name": "points", "type": "real", "null": false, "default": 0},
+			{"name": "first_seen", "type": "bigint", "null": false, "default": 0},
+			{"name": "last_seen", "type": "bigint", "null": false, "default": 0},
+			{"name": "playtime", "type": "real", "null": false, "default": 0},
+		],
+		"primary_key": ["player"],
+		"indexes": [{"name": "points", "columns": ["points"]}],
+	}
+
+
+func _maps_spec() -> Dictionary:
+	return {
+		"name": table("maps"),
+		"columns": [
+			{"name": "map", "type": "key", "null": false},
+			{"name": "tier", "type": "int", "null": false, "default": 1},
+			{"name": "stages", "type": "int", "null": false, "default": 0},
+			{"name": "bonuses", "type": "int", "null": false, "default": 0},
+			{"name": "ranked", "type": "bool", "null": false, "default": true},
+			{"name": "mapper", "type": "text"},
+			{"name": "info", "type": "json"},
+			{"name": "updated_at", "type": "bigint", "null": false, "default": 0},
+		],
+		"primary_key": ["map"],
+	}
+
+
+func _progress_spec() -> Dictionary:
+	return {
+		"name": table("progress"),
+		"columns": [
+			{"name": "player", "type": "key", "null": false},
+			{"name": "map", "type": "key", "null": false},
+			{"name": "track", "type": "int", "null": false, "default": 0},
+			{"name": "style", "type": "key", "null": false},
+			{"name": "attempts", "type": "int", "null": false, "default": 0},
+			{"name": "completions", "type": "int", "null": false, "default": 0},
+			{"name": "time_spent", "type": "real", "null": false, "default": 0},
+			{"name": "time_to_first", "type": "real", "null": false, "default": -1},
+		],
+		"primary_key": ["player", "map", "track", "style"],
+	}
+
+
+func _resume_spec() -> Dictionary:
+	return {
+		"name": table("resume"),
+		"columns": [
+			{"name": "player", "type": "key", "null": false},
+			{"name": "map", "type": "key", "null": false},
+			{"name": "state", "type": "json"},
+			{"name": "saved_at", "type": "bigint", "null": false, "default": 0},
+		],
+		"primary_key": ["player", "map"],
+	}
 
 
 func migration_steps() -> Array:

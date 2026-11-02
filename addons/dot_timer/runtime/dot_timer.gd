@@ -126,7 +126,6 @@ var _found: Array[DotTimerZone] = []
 var _pause_ticks: int = 0
 
 ## Whether the player was inside the start zone last tick.
-##
 ## The run begins when they LEAVE it, which needs the previous tick's answer.
 var _was_in_start: bool = false
 
@@ -178,7 +177,6 @@ func tick_interval() -> float:
 	return 1.0 / float(tick_rate)
 
 
-
 ## Advances the timer by one simulated tick.
 ## Call once per simulated tick from the movement loop, never from [code]_process[/code]: a per-frame timer makes a time depend on the monitor.
 func tick(sample: DotTimerSample) -> void:
@@ -192,23 +190,7 @@ func tick(sample: DotTimerSample) -> void:
 	_diff_membership(_found)
 	_rebuild_effects(_found)
 
-	if sample.grounded:
-		_ground_ticks += 1
-	else:
-		if _ground_ticks > 0:
-			_last_ground_streak = _ground_ticks
-		_ground_ticks = 0
-
-	if run.is_active():
-		if sample.noclip:
-			_stop(REASON_NOCLIP)
-		elif (
-			teleport_stop_distance > 0.0 and _expect_teleport_ticks <= 0
-			and sample.position.distance_to(sample.previous_position) > teleport_stop_distance
-		):
-			_stop(REASON_TELEPORT)
-	if _expect_teleport_ticks > 0:
-		_expect_teleport_ticks -= 1
+	_guard_tick(sample)
 
 	if not sample.alive:
 		# Death abandons the run. Reported before the zone handling so a player who
@@ -219,6 +201,30 @@ func tick(sample: DotTimerSample) -> void:
 		_carry(sample)
 		return
 
+	var in_start := _apply_zones(sample)
+
+	# Back in the start zone ends the attempt (the HUD reads 0 again), instead of the stale run counting on until the player leaves.
+	if in_start and run.is_active():
+		_stop(REASON_RESET)
+
+	# Started on LEAVING the start zone: entering would time the run-up, and it makes the crossing happen once, in a known direction.
+	if _was_in_start and not in_start:
+		_try_start(sample)
+
+	_was_in_start = in_start
+
+	_count_pause()
+
+	run.advance(sample.velocity.length())
+
+	_carry(sample)
+
+	# Last, so the timer's state is complete before the host moves anybody: a respawn handler calls back in through `stop()`.
+	_request_effects()
+
+
+## Applies this tick's zones to the run and reports whether the player is in this track's start zone.
+func _apply_zones(sample: DotTimerSample) -> bool:
 	var in_start := false
 
 	for zone in _found:
@@ -244,16 +250,32 @@ func tick(sample: DotTimerSample) -> void:
 			_:
 				pass
 
-	# Back in the start zone ends the attempt (the HUD reads 0 again), instead of the stale run counting on until the player leaves.
-	if in_start and run.is_active():
-		_stop(REASON_RESET)
+	return in_start
 
-	# Started on LEAVING the start zone: entering would time the run-up, and it makes the crossing happen once, in a known direction.
-	if _was_in_start and not in_start:
-		_try_start(sample)
 
-	_was_in_start = in_start
+## Tracks the ground streak, stops a run on noclip or an unexpected teleport, and spends one expected-teleport tick.
+func _guard_tick(sample: DotTimerSample) -> void:
+	if sample.grounded:
+		_ground_ticks += 1
+	else:
+		if _ground_ticks > 0:
+			_last_ground_streak = _ground_ticks
+		_ground_ticks = 0
 
+	if run.is_active():
+		if sample.noclip:
+			_stop(REASON_NOCLIP)
+		elif (
+			teleport_stop_distance > 0.0 and _expect_teleport_ticks <= 0
+			and sample.position.distance_to(sample.previous_position) > teleport_stop_distance
+		):
+			_stop(REASON_TELEPORT)
+	if _expect_teleport_ticks > 0:
+		_expect_teleport_ticks -= 1
+
+
+## Counts a paused tick and ends the run when the style's pause allowance runs out.
+func _count_pause() -> void:
 	if run.status == DotTimerRun.Status.PAUSED:
 		_pause_ticks += 1
 
@@ -262,13 +284,6 @@ func tick(sample: DotTimerSample) -> void:
 			and float(_pause_ticks) * tick_interval() > style.maximum_pause
 		):
 			_stop(REASON_PAUSE_EXPIRED)
-
-	run.advance(sample.velocity.length())
-
-	_carry(sample)
-
-	# Last, so the timer's state is complete before the host moves anybody: a respawn handler calls back in through `stop()`.
-	_request_effects()
 
 
 ## Asks the host to act on the act-on-entry zones entered this tick.
@@ -306,7 +321,6 @@ func _request_effects() -> void:
 ## Owned by the timer: a host that updated it twice or before the timer ran would give permanently wrong times.
 func _carry(sample: DotTimerSample) -> void:
 	sample.previous_position = sample.position
-
 
 
 func _diff_membership(current: Array[DotTimerZone]) -> void:
@@ -374,7 +388,6 @@ func in_zone(kind: DotTimerZone.Kind) -> bool:
 		if zone.kind == kind and zone.track == track:
 			return true
 	return false
-
 
 
 func _try_start(sample: DotTimerSample) -> void:
@@ -516,7 +529,6 @@ func _style_id() -> StringName:
 	return style.id if style != null else &"normal"
 
 
-
 ## Abandons any run in progress. Idempotent.
 func stop(reason: StringName = REASON_RESET) -> void:
 	if run.is_active():
@@ -645,7 +657,6 @@ func note_checkpoint_used() -> void:
 func taint() -> void:
 	if run.is_active():
 		run.tainted = true
-
 
 
 ## Whether the finished run may be recorded, and why not if it may not.
