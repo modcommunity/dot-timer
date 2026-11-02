@@ -95,6 +95,47 @@ func _idle_manager(manager: DotTimerManager, id: StringName, ticks: int) -> void
 		manager.tick_player(id, Vector3(104.0, 0.0, 0.0), Vector3.ZERO, true, true)
 
 
+func _check_replay_on_disk(manager: DotTimerManager, path: String, record: DotTimerRecord) -> void:
+	var loaded := DotTimerReplay.load_from(path)
+	_check(loaded.ok, "which loads back", str(loaded.error))
+
+	if loaded.ok:
+		var replay: DotTimerReplay = loaded.value
+		var kept: DotTimerReplay = manager.player(&"p1").last_replay
+		_check(
+			kept != null and replay.frames.size() == kept.frames.size(),
+			"with every frame that was recorded",
+			"%d on disk" % replay.frames.size()
+		)
+		_check(
+			replay.map_id == record.map_id,
+			"and the map it was set on"
+		)
+		_check(replay.start_frame > 0 and replay.run_end_frame() < replay.frames.size() - 100,
+			"with the run-up before the start and the run-out after the finish",
+			"start %d, end %d, %d frames" % [replay.start_frame, replay.run_end_frame(), replay.frames.size()])
+		_check(absf((replay.run_end_seconds() - replay.run_start_seconds()) - replay.time) < 0.05,
+			"and the run between them is the run's own time", "%.3f against %.3f" % [replay.run_end_seconds() - replay.run_start_seconds(), replay.time])
+
+
+func _check_replay_names(manager: DotTimerManager) -> void:
+	# Ids differing only where the sanitiser substitutes must not share a file: without the hash suffix surf_kitsune2 and surf_kitsune3 became one leaderboard.
+	var a := _record(&"p1", 1.0)
+	var b := _record(&"p1", 1.0)
+	a.map_id = &"surf/one"
+	b.map_id = &"surf:one"
+
+	_check(
+		manager.replay_path(a) != manager.replay_path(b),
+		"two ids the sanitiser flattens still get two files",
+		manager.replay_path(a)
+	)
+	_check(
+		not manager.replay_path(a).contains(".."),
+		"and a traversal in an id cannot leave the directory"
+	)
+
+
 func _test_replay_files() -> void:
 	print("")
 	_section("a kept replay reaches the disk")
@@ -140,26 +181,7 @@ func _test_replay_files() -> void:
 		var path := manager.replay_path(accepted[0])
 		_check(FileAccess.file_exists(path), "and its replay is on disk", path)
 
-		var loaded := DotTimerReplay.load_from(path)
-		_check(loaded.ok, "which loads back", str(loaded.error))
-
-		if loaded.ok:
-			var replay: DotTimerReplay = loaded.value
-			var kept: DotTimerReplay = manager.player(&"p1").last_replay
-			_check(
-				kept != null and replay.frames.size() == kept.frames.size(),
-				"with every frame that was recorded",
-				"%d on disk" % replay.frames.size()
-			)
-			_check(
-				replay.map_id == accepted[0].map_id,
-				"and the map it was set on"
-			)
-			_check(replay.start_frame > 0 and replay.run_end_frame() < replay.frames.size() - 100,
-				"with the run-up before the start and the run-out after the finish",
-				"start %d, end %d, %d frames" % [replay.start_frame, replay.run_end_frame(), replay.frames.size()])
-			_check(absf((replay.run_end_seconds() - replay.run_start_seconds()) - replay.time) < 0.05,
-				"and the run between them is the run's own time", "%.3f against %.3f" % [replay.run_end_seconds() - replay.run_start_seconds(), replay.time])
+		_check_replay_on_disk(manager, path, accepted[0])
 
 	# A slower second run is not kept, so there is nothing to write: the file must
 	# still be the record's replay rather than the run that lost to it.
@@ -176,21 +198,7 @@ func _test_replay_files() -> void:
 			"a run the store did not keep does not overwrite the replay"
 		)
 
-	# Ids differing only where the sanitiser substitutes must not share a file: without the hash suffix surf_kitsune2 and surf_kitsune3 became one leaderboard.
-	var a := _record(&"p1", 1.0)
-	var b := _record(&"p1", 1.0)
-	a.map_id = &"surf/one"
-	b.map_id = &"surf:one"
-
-	_check(
-		manager.replay_path(a) != manager.replay_path(b),
-		"two ids the sanitiser flattens still get two files",
-		manager.replay_path(a)
-	)
-	_check(
-		not manager.replay_path(a).contains(".."),
-		"and a traversal in an id cannot leave the directory"
-	)
+	_check_replay_names(manager)
 
 	# Off means off: no directory, no files, and the run still counts.
 	manager.replays_directory = ""
