@@ -109,9 +109,9 @@ It adds height above the marked corners for you, because both marks are taken at
 
 ```bash
 godot --headless --path . --import
-godot --headless --path . res://examples/timer_selftest.tscn           # 309 checks
+godot --headless --path . res://examples/timer_selftest.tscn           # 357 checks
 godot --headless --path . res://examples/timer_2d_selftest.tscn        # 27 checks
-godot --headless --path . res://examples/timer_records_selftest.tscn   # 181 checks
+godot --headless --path . res://examples/timer_records_selftest.tscn   # 183 checks
 ../dot-sql/tools/test_live.sh . res://examples/timer_sql_live.tscn     # 58 checks per database
 ```
 
