@@ -89,10 +89,10 @@ func _ready() -> void:
 	while x <= 104.0:
 		x += 10.0 / 128.0
 		manager.tick_player(&"p1", Vector3(x, 0, 0), Vector3(10, 0, 0), true, true)
-	for i in range(60):
+	# Filing is a dozen gateway round trips, so wait on the clock, not a frame count.
+	var deadline := Time.get_ticks_msec() + 15000
+	while filed.is_empty() and Time.get_ticks_msec() < deadline:
 		await get_tree().process_frame
-		if not filed.is_empty():
-			break
 	_check("a manager files through the SQL store", filed.size() == 1 and bool(filed[0]["world_record"]))
 	var rank: DotResult = await manager.store.player_rank(&"p1")
 	_check("and the player is ranked", rank.ok and int(rank.value["rank"]) == 1)
