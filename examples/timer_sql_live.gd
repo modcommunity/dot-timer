@@ -6,9 +6,12 @@ extends Node
 const Contract := preload("res://examples/timer_store_contract.gd")
 
 const CHECKS := Contract.CHECKS + 12
+const SECTIONS := 4
 
 var _passed := 0
 var _failed := 0
+var _entered := 0
+var _completed := 0
 
 
 func _ready() -> void:
@@ -29,7 +32,11 @@ func _ready() -> void:
 		get_tree().quit(1)
 		return
 
+	_entered += 1
 	await Contract.new().run(a, _check)
+	_completed += 1
+
+	_entered += 1
 
 	var b := await _store("dot_tlive_")
 	await a.put(Contract.rec(&"zed", 40.0))
@@ -40,6 +47,9 @@ func _ready() -> void:
 	_check("a slower run filed by a stale server never overwrites a faster one", late.ok and truth.ok and truth.value is DotTimerRecord and is_equal_approx((truth.value as DotTimerRecord).time, 30.0))
 	var count_res: DotResult = await a.count_on(Contract.M, 0, &"normal")
 	_check("and the board still has one row for the player", count_res.ok and int(count_res.value) == 1)
+	_completed += 1
+
+	_entered += 1
 
 	var c := await _store("dot_tlive_")
 	c.cache_seconds = 30.0
@@ -63,6 +73,9 @@ func _ready() -> void:
 	await c.top(Contract.M, 0, &"normal", 10)
 	await c.top(Contract.M, 0, &"normal", 10)
 	_check("with the cache off every read goes to the database", c.queries == q + 2)
+	_completed += 1
+
+	_entered += 1
 
 	var manager := DotTimerManager.new()
 	manager.authoritative = true
@@ -99,11 +112,13 @@ func _ready() -> void:
 	var profile: DotResult = await manager.profile(&"p1")
 	_check("and has a profile", profile.ok and int(profile.value["maps_done"]) == 1)
 	_check("and the map was catalogued", (await manager.store.map_info(&"live_corridor")).value != null)
+	_completed += 1
 
 	print("%d passed, %d failed" % [_passed, _failed])
+	print("%d of %d sections ran to their last line" % [_completed, _entered])
 	await _drop(a)
 	await _drop(manager.store)
-	get_tree().quit(1 if _failed > 0 or _passed + _failed != CHECKS else 0)
+	get_tree().quit(1 if _failed > 0 or _passed + _failed != CHECKS or _entered != SECTIONS or _completed != _entered else 0)
 
 
 func _store(prefix: String) -> DotTimerStoreSql:
