@@ -1,4 +1,2 @@
 # duplication
 # Baselines only shrink: scripts/<gate> --update lowers or drops entries and refuses to add.
-examples/timer_2d_selftest.gd	35
-examples/timer_selftest.gd	35

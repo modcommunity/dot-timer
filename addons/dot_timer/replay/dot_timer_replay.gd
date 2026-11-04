@@ -240,13 +240,29 @@ static func from_bytes(bytes: PackedByteArray) -> DotResult:
 			"format %d, this build reads %d" % [version, FORMAT_VERSION]
 		)
 
+	var replay := DotTimerReplay.new()
+	var header := _read_header(reader, replay, version, bytes.size())
+	if not header.ok:
+		return header
+	var read := _read_frames(reader, replay, int(header.value))
+	if not read.ok:
+		return read
+
+	if replay.end_frame >= replay.frames.size():
+		replay.end_frame = replay.frames.size() - 1
+	replay.start_frame = clampi(replay.start_frame, 0, maxi(replay.frames.size() - 1, 0))
+
+	return DotResult.success(replay)
+
+
+## Reads the header after the version byte into `replay`; succeeds with the frame count.
+static func _read_header(reader: StreamPeerBuffer, replay: DotTimerReplay, version: int, total: int) -> DotResult:
 	# Track, tick rate, time and recorded_at: 1 + 2 + 4 + 4.
 	if reader.get_available_bytes() < 11:
 		return DotResult.fail(
 			DotError.CODE_PARSE, "The replay header is truncated."
 		)
 
-	var replay := DotTimerReplay.new()
 	replay.track = reader.get_u8()
 	replay.tick_rate = reader.get_u16()
 	replay.time = reader.get_float()
@@ -279,13 +295,17 @@ static func from_bytes(bytes: PackedByteArray) -> DotResult:
 	var count := reader.get_u32()
 
 	# A frame is at least 11 bytes; a count implying more than the buffer holds is corrupt or hostile, checked before allocating what a 32-bit count asks for.
-	if count > bytes.size():
+	if count > total:
 		return DotResult.fail(
 			DotError.CODE_PARSE,
 			"The replay claims more frames than its size allows.",
-			"%d frames in %d bytes" % [count, bytes.size()]
+			"%d frames in %d bytes" % [count, total]
 		)
 
+	return DotResult.success(count)
+
+
+static func _read_frames(reader: StreamPeerBuffer, replay: DotTimerReplay, count: int) -> DotResult:
 	var x := 0
 	var y := 0
 	var z := 0
@@ -329,11 +349,7 @@ static func from_bytes(bytes: PackedByteArray) -> DotResult:
 			buttons
 		)
 
-	if replay.end_frame >= replay.frames.size():
-		replay.end_frame = replay.frames.size() - 1
-	replay.start_frame = clampi(replay.start_frame, 0, maxi(replay.frames.size() - 1, 0))
-
-	return DotResult.success(replay)
+	return DotResult.success(true)
 
 
 func save(path: String) -> DotResult:

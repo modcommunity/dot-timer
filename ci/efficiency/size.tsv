@@ -1,9 +1,7 @@
 # size
 # Baselines only shrink: scripts/<gate> --update lowers or drops entries and refuses to add.
-addons/dot_timer/replay/dot_timer_replay.gd::from_bytes	118
 addons/dot_timer/runtime/dot_timer_manager.gd	1525
 addons/dot_timer/store/dot_timer_store_sql.gd	959
-addons/dot_timer/store/dot_timer_store_sql.gd::put	120
 examples/timer_2d_selftest.gd::_test_a_2d_run	89
 examples/timer_selftest.gd	2222
 examples/timer_selftest.gd::_test_checkpoints_practice	141
@@ -15,5 +13,3 @@ examples/timer_selftest.gd::_test_stage_navigation	112
 examples/timer_selftest.gd::_test_start_on_leaving	97
 examples/timer_selftest.gd::_test_tick_rate_configuration	117
 examples/timer_selftest.gd::_test_zone_set_validation	95
-examples/timer_sql_live.gd::_ready	93
-examples/timer_store_contract.gd::run	168

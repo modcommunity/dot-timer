@@ -30,6 +30,17 @@ static func rec(player: StringName, time: float, style: StringName = &"normal", 
 func run(store: DotTimerStore, check: Callable) -> void:
 	_check = check
 
+	await _filing(store)
+	await _boards(store)
+	await _points(store)
+	await _records_and_history(store)
+	await _players_maps_progress(store)
+	await _removal(store)
+	await _precision_and_order(store)
+
+
+## Filing, slower and faster finishes.
+func _filing(store: DotTimerStore) -> void:
 	var first: DotResult = await store.put(rec(&"alice", 30.0))
 	_c("a first finish is filed", first.ok and bool(first.value["improved"]))
 	_c("with no previous best and no previous record", first.ok and first.value["previous"] == null and first.value["previous_record"] == null)
@@ -49,6 +60,9 @@ func run(store: DotTimerStore, check: Callable) -> void:
 	_c("a faster finish replaces it", faster.ok and bool(faster.value["improved"]) and int(faster.value["completions"]) == 3)
 	_c("and names the previous record (their own)", faster.ok and faster.value["previous_record"] is DotTimerRecord and (faster.value["previous_record"] as DotTimerRecord).player_id == &"alice")
 
+
+## Board order, ranks and sections.
+func _boards(store: DotTimerStore) -> void:
 	await store.put(rec(&"bob", 27.0))
 	await store.put(rec(&"carol", 40.0))
 	await store.put(rec(&"dave", 27.0))
@@ -82,6 +96,9 @@ func run(store: DotTimerStore, check: Callable) -> void:
 	_c("and so is another style", other_style.ok and int(other_style.value) == 1)
 	await store.put(rec(&"alice", 12.0, &"normal", 1))
 
+
+## Points and player totals.
+func _points(store: DotTimerStore) -> void:
 	var scored := [rec(&"alice", 25.0), rec(&"bob", 27.0), rec(&"alice", 12.0, &"normal", 1), rec(&"alice", 50.0, &"sideways")]
 	scored[0].points = 100.0
 	scored[1].points = 90.0
@@ -99,6 +116,9 @@ func run(store: DotTimerStore, check: Callable) -> void:
 	var players: DotResult = await store.top_players(10)
 	_c("the players list is by points", players.ok and (players.value as Array).size() == 2 and str(players.value[0]["player"]) == "alice" and str(players.value[1]["player"]) == "bob")
 
+
+## A player's records and the history.
+func _records_and_history(store: DotTimerStore) -> void:
 	var mine: DotResult = await store.records_of(&"alice")
 	_c("a player's records are every whole-run board they are on", mine.ok and (mine.value as Array).size() == 3)
 	var mine_normal: DotResult = await store.records_of(&"alice", {"style": "normal", "track": 0})
@@ -116,6 +136,9 @@ func run(store: DotTimerStore, check: Callable) -> void:
 	var everything: DotResult = await store.recent(50, {"records_only": false})
 	_c("every improvement is in the history, sections excluded by default", everything.ok and (everything.value as Array).size() == 7)
 
+
+## Players, maps, progress and resume.
+func _players_maps_progress(store: DotTimerStore) -> void:
 	await store.note_player(&"erin", "Erin", 1790000000)
 	await store.note_player(&"erin", "Erin B", 1790000100, 30.0)
 	await store.note_player(&"erin", "", 1790000200, 15.5)
@@ -146,6 +169,9 @@ func run(store: DotTimerStore, check: Callable) -> void:
 	var peeked: Variant = store.peek_best(M, 0, &"normal", &"bob")
 	_c("a best already read can be peeked without waiting", peeked is DotTimerRecord and is_equal_approx((peeked as DotTimerRecord).time, 27.0))
 
+
+## Removal and wipes.
+func _removal(store: DotTimerStore) -> void:
 	var removed: DotResult = await store.remove(M, 0, &"normal", &"carol")
 	var after_remove: DotResult = await store.count_on(M, 0, &"normal")
 	_c("a record can be removed", removed.ok and bool(removed.value) and after_remove.ok and int(after_remove.value) == 3)
@@ -163,6 +189,9 @@ func run(store: DotTimerStore, check: Callable) -> void:
 	var map_gone: DotResult = await store.map_info(M)
 	_c("a map wipe empties the map and forgets it", wiped_map.ok and map_left.ok and (map_left.value as Array).is_empty() and map_gone.ok and map_gone.value == null)
 
+
+## Float precision and catalogue order.
+func _precision_and_order(store: DotTimerStore) -> void:
 	# A time with every digit: a gateway that serialised floats to fifteen digits stored a
 	# slightly different time than it cached, and the player ranked behind their own row.
 	var precise := rec(&"hal", 25.123456789012345, &"normal", 0, 0, &"precise_map")
@@ -195,6 +224,7 @@ func run(store: DotTimerStore, check: Callable) -> void:
 	_c("the catalogue lists maps by id as text", in_order == by_text)
 	for id in filed:
 		await store.wipe_map(StringName(id))
+
 
 
 func _c(what: String, passed: bool) -> void:

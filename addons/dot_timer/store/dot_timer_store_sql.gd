@@ -210,43 +210,14 @@ func put(record: DotTimerRecord) -> DotResult:
 		_cache_best(record.board_key(), record.player_id, previous)
 		return DotResult.success(_put_result(previous, false, leader, completions))
 
-	var statements: Array = []
-	if previous == null:
-		# Insert-or-ignore, then the conditional update below. Two servers filing a
-		# player's first time at once (the same player on two servers is not a thing,
-		# but a retried request is) both succeed, and the update keeps the faster.
-		statements.append([
-			driver.upsert_sql(table("records"), PackedStringArray(RECORD_COLUMNS),
-				PackedStringArray(["map", "track", "style", "stage", "player"]), []),
-			_record_params(record),
-		])
-
-	var sets := PackedStringArray()
-	for column in RECORD_COLUMNS:
-		if column in ["map", "track", "style", "stage", "player", "completions"]:
-			continue
-		sets.append("%s = ?" % column)
-	var update_params: Array = []
-	var all_params := _record_params(record)
-	for i in range(RECORD_COLUMNS.size()):
-		if RECORD_COLUMNS[i] in ["map", "track", "style", "stage", "player", "completions"]:
-			continue
-		update_params.append(all_params[i])
-	# `time > ?`: only ever replace a slower row. The guard that makes concurrent
-	# servers safe — see the class documentation.
-	statements.append([
-		"UPDATE %s SET %s, completions = ? WHERE %s AND player = ? AND time > ?" % [
-			table("records"), ", ".join(sets), BOARD_WHERE],
-		update_params + [completions] + key_params + [record.time],
-	])
+	var statements := _put_statements(record, previous, completions, key_params)
 
 	var wrote: DotResult = await driver.batch(statements)
 	queries += statements.size()
 	if not wrote.ok:
 		return wrote.wrap("Could not file the record.")
 
-	# Read back, then decide: the conditional UPDATE keeps the faster row but cannot tell THIS caller if its write was kept (affected-row counts vary by backend).
-	# If the row is not this run, another server filed a faster one; the record question is asked of the board after the write.
+	# Read back: the conditional UPDATE cannot tell this caller if its write was kept (affected-row counts vary by backend).
 	var board := record.board_key()
 	var after := await _select_record(record.map_id, record.track, record.style_id, record.player_id, record.stage)
 	if not after.ok or after.value == null:
@@ -264,6 +235,46 @@ func put(record: DotTimerRecord) -> DotResult:
 	var was_record := faster.ok and int(faster.value) == 0
 	record.completions = kept.completions
 
+	await _log_history(record, kept, previous, leader, was_record)
+
+	_top_cache.erase(board)
+	_count_cache.erase(board)
+	_cache_best(board, record.player_id, kept)
+
+	# `previous_record` is the leader before the write; `was_record` is whether this run took first place.
+	var result := _put_result(previous, true, leader, kept.completions)
+	result["was_record"] = was_record
+	return DotResult.success(result)
+
+
+func _put_statements(record: DotTimerRecord, previous: DotTimerRecord, completions: int, key_params: Array) -> Array:
+	var statements: Array = []
+	if previous == null:
+		# Insert-or-ignore: a retried first time succeeds twice and the update keeps the faster.
+		statements.append([
+			driver.upsert_sql(table("records"), PackedStringArray(RECORD_COLUMNS),
+				PackedStringArray(["map", "track", "style", "stage", "player"]), []),
+			_record_params(record),
+		])
+
+	var sets := PackedStringArray()
+	var update_params: Array = []
+	var all_params := _record_params(record)
+	for i in range(RECORD_COLUMNS.size()):
+		if RECORD_COLUMNS[i] in ["map", "track", "style", "stage", "player", "completions"]:
+			continue
+		sets.append("%s = ?" % RECORD_COLUMNS[i])
+		update_params.append(all_params[i])
+	# `time > ?` only ever replaces a slower row: what makes concurrent servers safe.
+	statements.append([
+		"UPDATE %s SET %s, completions = ? WHERE %s AND player = ? AND time > ?" % [
+			table("records"), ", ".join(sets), BOARD_WHERE],
+		update_params + [completions] + key_params + [record.time],
+	])
+	return statements
+
+
+func _log_history(record: DotTimerRecord, kept: DotTimerRecord, previous: DotTimerRecord, leader: DotTimerRecord, was_record: bool) -> void:
 	var logged: DotResult = await _execute(
 		driver.upsert_sql(table("history"),
 			PackedStringArray(["map", "track", "style", "stage", "player", "set_at", "time",
@@ -278,19 +289,8 @@ func put(record: DotTimerRecord) -> DotResult:
 		]
 	)
 	if not logged.ok:
-		# The record is filed; only the history line is missing. Not worth refusing a
-		# run that IS on the board over.
+		# The record is filed; a missing history line is not worth refusing the run over.
 		DotLog.warn(CHANNEL, "a record was filed but its history line was not", {"why": logged.error.message})
-
-	_top_cache.erase(board)
-	_count_cache.erase(board)
-	_cache_best(board, record.player_id, kept)
-
-	# `previous_record` is the leader as read before the write, for the message ("beating
-	# X by ..."); whether THIS run took first place is `was_record`, from after it.
-	var result := _put_result(previous, true, leader, kept.completions)
-	result["was_record"] = was_record
-	return DotResult.success(result)
 
 
 ## Whether two stored times are the same run. Exactly, unless a float lost its last bits
