@@ -41,7 +41,7 @@ A staged map is a course divided into numbered sections with a line between each
 
 - **The run is stopped, not tainted.** A player teleported into the middle of a map has not run the first half; practice checkpoints are the mechanism for "keep my time while I learn this".
 - **A stage out of range is refused.** A player who typed `!s9` on a five-stage map and was silently put on stage 5 has no way to tell.
-- **A stage zone with no `destination` resolves to `Vector3.ZERO`**, which on most maps is a point in the sky. Nothing errors; the player is dropped out of the world. game-g2gfast's `G2GMap.zone_stage` exists to make forgetting it hard.
+- **A stage zone with no `destination` resolves to `Vector3.ZERO`**, which on most maps is a point in the sky. Nothing errors; the player is dropped out of the world. game-airdrift's `G2GMap.zone_stage` exists to make forgetting it hard.
 - **The timer still moves nobody.**
 
 Section records are filed as a stage's second line is crossed, from runs clean so far; sections earn no points.
