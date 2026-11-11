@@ -36,7 +36,7 @@ Read the family [CLAUDE.md](../../CLAUDE.md) first; this file is only what is sp
 
 - The family's two steps ([family CLAUDE.md](../../CLAUDE.md#validating-anything)), then `timer_selftest.tscn`, `timer_2d_selftest.tscn` and `timer_records_selftest.tscn`; `../dot-sql/tools/test_live.sh . res://examples/timer_sql_live.tscn` against the three databases for anything in the SQL store. [testing](docs/testing.md)
 - The 2D suite is not a formality: it found a bug in the shared code on its first run.
-- A change here is not done until game-g2gfast's and game-playground's suites agree; three of the bugs here were found from a game.
+- A change here is not done until game-g2gfast's and game-playlot's suites agree; three of the bugs here were found from a game.
 - The HUD is checked by a picture: `tools/screenshot.sh dot-timer out.png --scene res://examples/hud_preview.tscn` from game-dev.
 
 ## Rules that bite
